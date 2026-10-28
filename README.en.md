@@ -30,7 +30,49 @@ A single static binary with no dependencies (no Python). The web page is built i
 
 - Keenetic / Netcraze with Entware ("Open Package support");
 - [XKeen](https://github.com/jameszeroX/XKeen) with the **Xray** core (`xkeen -xray`);
-- aarch64, mipsel, mips or armv7.
+- aarch64, mipsel, mips or armv7;
+- **at least 100 MB free** for Entware — in practice that means a USB drive;
+- 128 MB of RAM or more.
+
+### How much space
+
+Most of it goes to the Xray core, not to xsub. Unpacked sizes, Xray v26.10.21:
+
+| What | Space |
+| --- | --- |
+| Xray binary, mips/mipsel | 32.7 MB |
+| Xray binary, aarch64 / armv7 | ~31 MB |
+| `geoip.dat` + `geosite.dat` | 6 MB |
+| xsub | 7.9 MB |
+| XKeen with its scripts and dependencies (iptables, ipset, curl, ca-bundle, coreutils) | 3–5 MB |
+| **Total** | **≈ 50 MB** |
+
+On top of that you need headroom: opkg unpacks packages into a temporary directory, geo files
+are updated through a copy kept next to them, and the log and subscription cache live somewhere
+too. Hence the 100 MB figure.
+
+**Keenetic's built-in storage is not enough.** On models that have it, the OPKG partition is
+usually 55 MB with part of it already in use — the Xray binary alone does not fit. A USB drive
+is required; any flash drive will do, and Keenetic moves Entware onto it with its own tools.
+If the router has a single USB port and it is taken by an LTE modem, XKeen with Xray cannot be
+installed on it at all — that is a limit of the Xray core, not of xsub.
+
+### What to expect from the CPU
+
+Xray encrypts traffic on the router's CPU; there is no hardware acceleration for VLESS/Reality.
+The CPU, not your ISP plan, sets the speed ceiling:
+
+- **mips / mipsel** — older MIPS models. The slowest option: it works, but VPN throughput will
+  be noticeably below the line rate.
+- **armv7** — in between.
+- **aarch64** — newer models, the fastest option available.
+
+If speed matters, measure it right after installing by picking a node by hand on the Nodes tab.
+Latency is shown there too, but it tells you about the route, not about throughput: the CPU can
+be the bottleneck even when latency looks fine.
+
+The watchdog adds a little subscription traffic: each node check downloads 32 KB (configurable).
+Thirty nodes checked once every 30 minutes is about 45 MB a day.
 
 ## Install
 
