@@ -31,8 +31,7 @@ A single static binary with no dependencies (no Python). The web page is built i
 - Keenetic / Netcraze with Entware ("Open Package support");
 - [XKeen](https://github.com/jameszeroX/XKeen) with the **Xray** core (`xkeen -xray`);
 - aarch64, mipsel, mips or armv7;
-- **at least 100 MB free** for Entware — in practice that means a USB drive;
-- 128 MB of RAM or more.
+- **at least 100 MB free** for Entware — in practice that means a USB drive.
 
 ### How much space
 
@@ -51,21 +50,32 @@ On top of that you need headroom: opkg unpacks packages into a temporary directo
 are updated through a copy kept next to them, and the log and subscription cache live somewhere
 too. Hence the 100 MB figure.
 
+RAM is used as well: the core keeps the geo databases in memory, and the more categories and
+nodes are in play, the more it holds. No per-model threshold is given here — it depends too
+much on list sizes — but on routers with the smallest amount of memory the headroom is thin.
+
 **Keenetic's built-in storage is not enough.** On models that have it, the OPKG partition is
 usually 55 MB with part of it already in use — the Xray binary alone does not fit. A USB drive
 is required; any flash drive will do, and Keenetic moves Entware onto it with its own tools.
-If the router has a single USB port and it is taken by an LTE modem, XKeen with Xray cannot be
-installed on it at all — that is a limit of the Xray core, not of xsub.
+If no USB port is free — the only one taken by a modem, say — XKeen with Xray cannot be
+installed on that router at all: that is a limit of the Xray core's size, not of xsub.
 
 ### What to expect from the CPU
 
 Xray encrypts traffic on the router's CPU; there is no hardware acceleration for VLESS/Reality.
 The CPU, not your ISP plan, sets the speed ceiling:
 
-- **mips / mipsel** — older MIPS models. The slowest option: it works, but VPN throughput will
-  be noticeably below the line rate.
+- **mips / mipsel** — the slowest option: it works, but VPN throughput will be noticeably
+  below the line rate.
 - **armv7** — in between.
-- **aarch64** — newer models, the fastest option available.
+- **aarch64** — the fastest option available.
+
+To find out your architecture:
+
+```sh
+uname -m                  # aarch64, armv7l, mips…
+opkg print-architecture   # tells mipsel from mips on MIPS
+```
 
 If speed matters, measure it right after installing by picking a node by hand on the Nodes tab.
 Latency is shown there too, but it tells you about the route, not about throughput: the CPU can
@@ -82,7 +92,7 @@ Over SSH on the router (Entware shell):
 curl -fsSL https://raw.githubusercontent.com/furriest/xsub/main/install.sh | sh
 ```
 
-The installer detects the architecture, installs the package, creates the config and prints the page address, login and password. Open `http://<router-IP>:8099/` and add your subscription link. If XKeen is not installed, the installer offers to install it (choose the Xray core there); if XKeen has no Xray core or runs mihomo, it offers `xkeen -ux` / `xkeen -xray`. Without a terminal it installs nothing unasked; `XSUB_YES=1` answers yes to everything.
+The installer detects the architecture, checks there is enough free space, installs the package, creates the config and prints the page address, login and password. Open `http://<router-IP>:8099/` and add your subscription link. If XKeen is not installed, the installer offers to install it (choose the Xray core there); if XKeen has no Xray core or runs mihomo, it offers `xkeen -ux` / `xkeen -xray`. Without a terminal it installs nothing unasked; `XSUB_YES=1` answers yes to everything.
 
 Until a subscription is added, xsub does not touch the Xray configs.
 
@@ -127,7 +137,8 @@ Rule order: "Direct", then groups (in page order), then "Via VPN". Everything el
 
 ## Log and flash wear
 
-The log goes to `/tmp/xsub.log` by default — the router's RAM — so neither internal flash nor a USB drive wears out. The file is capped by `log_max_kb` (256 KB) with one `.old` rotation. The last 300 lines are always on the page. Node statistics and history live in RAM only. xsub writes to storage only when something actually changes.
+The log goes to `/tmp/xsub.log` by default — the router's RAM — so neither internal flash nor a USB drive wears out. The file is capped by `log_max_kb` (256 KB) with one `.old` rotation. The last 80 lines are on the page (300 are kept in memory). Node statistics are copied to
+`watchdog.stats_file`, so they survive an xsub restart but not a router reboot. xsub writes to storage only when something actually changes.
 
 ## Security
 
@@ -150,8 +161,9 @@ Skipped with a warning (not supported by Xray itself): TUIC, Hysteria v1, AnyTLS
 No network dependencies: the YAML library is vendored in `third_party/` (go-yaml v3.0.1, MIT/Apache-2.0).
 
 ```sh
-go test ./...
-VERSION=0.4.0 REPO=furriest/xsub scripts/build.sh   # → dist/
+go vet ./... && go test -race ./...
+scripts/build.sh                 # version comes from git describe → dist/
+VERSION=1.2.3 scripts/build.sh   # or set it explicitly
 ```
 
 Releases are built by GitHub Actions on `v*` tags; the opkg feed is published to GitHub Pages.
