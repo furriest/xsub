@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -80,6 +81,30 @@ func subKey(u string) string {
 }
 
 func (a *App) cachePath(u string) string { return a.c.path(filepath.Join("cache", subKey(u)+".txt")) }
+
+// fetchSub качает и разбирает подписку. HWID отправляется, только если без него
+// узлов нет: иначе роутер зря занимал бы место в лимите устройств у панелей,
+// которые пускают и без HWID. Тело парсится один раз — с тем флагом multi, с
+// которым узлы пойдут в работу. hwid=true — панель выдала узлы только с HWID.
+func (a *App) fetchSub(ctx context.Context, s Subscription, ua string, sock any, multi bool) ([]byte, http.Header, []Node, []string, bool, error) {
+	b, h, err := fetchURLHeaders(ctx, a.c, s.URL, subHeaders(ua, ""), 8<<20)
+	if err != nil {
+		return nil, nil, nil, nil, false, err
+	}
+	n, w := a.parseSub(s, b, sock, multi)
+	if len(n) > 0 {
+		return b, h, n, w, false, nil
+	}
+	if id := deviceHWID(a.c); id != "" {
+		if b2, h2, err2 := fetchURLHeaders(ctx, a.c, s.URL, subHeaders(ua, id), 8<<20); err2 == nil {
+			if n2, w2 := a.parseSub(s, b2, sock, multi); len(n2) > 0 {
+				lg.Printf("подписка «%s»: панель выдаёт узлы только с HWID — отправлен HWID роутера", s.Name)
+				return b2, h2, n2, w2, true, nil
+			}
+		}
+	}
+	return b, h, n, w, false, nil
+}
 
 func (a *App) parseSub(s Subscription, raw []byte, sockopt any, multi bool) ([]Node, []string) {
 	o := parseOpts{sub: s.Name, sockopt: sockopt, maxNodes: a.c.MaxNodes}
@@ -224,14 +249,19 @@ func (a *App) collect(ctx context.Context, fetch bool) []Node {
 		fresh := false
 		if fetch {
 			ua := firstNonEmpty(s.UserAgent, a.c.UserAgent)
-			b, h, err := fetchURL(ctx, a.c, s.URL, ua, 8<<20)
+			b, h, nodes, warns, _, err := a.fetchSub(ctx, s, ua, sock, multi)
 			if err != nil {
 				st.Err = err.Error()
 				lg.Printf("подписка «%s» не обновлена: %v", s.Name, err)
 			} else {
-				nodes, warns = a.parseSub(s, b, sock, multi)
 				if len(nodes) == 0 {
 					st.Err = "в ответе нет подходящих узлов (проверьте ссылку, фильтры и user_agent)"
+					for _, x := range warns {
+						if strings.HasPrefix(x, "пропущено информационных записей") {
+							st.Err = fmt.Sprintf("панель прислала только служебные записи вместо узлов: проверьте user_agent; с HWID тоже не вышло — возможно, исчерпан лимит устройств (HWID роутера в файле %s)", a.c.path("hwid"))
+							break
+						}
+					}
 					st.Warns = warns
 					lg.Printf("подписка «%s» не обновлена: %s", s.Name, st.Err)
 					nodes = nil
