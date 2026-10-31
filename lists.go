@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -163,9 +164,48 @@ type Group struct {
 }
 
 const (
-	groupsFile = "groups.json"
-	maxGroups  = 8
+	groupsFile   = "groups.json"
+	routeDefFile = "routing.json"
+	maxGroups    = 8
 )
+
+// ---------- маршрут по умолчанию ----------
+
+// routingState — настройка из routeDefFile: куда идёт трафик, который не
+// попал ни в один список и группу. "direct" или "vpn"; пусто — авто
+// (серверный режим: через VPN, роутер: напрямую).
+type routingState struct {
+	Default string `json:"default"`
+}
+
+// loadRouteDefault читает routing.json. Файла и мелких повреждений не боимся:
+// отсутствие настройки — валидное состояние «авто».
+func loadRouteDefault(c *Config) string {
+	b, err := os.ReadFile(c.path(routeDefFile))
+	if err != nil {
+		return ""
+	}
+	var r routingState
+	if json.Unmarshal(stripJSONComments(b), &r) != nil {
+		return ""
+	}
+	if r.Default == "direct" || r.Default == "vpn" {
+		return r.Default
+	}
+	return ""
+}
+
+// routeDefaultResolved — значение для страницы и генератора конфига: явный
+// выбор, а при его отсутствии — дефолт режима.
+func routeDefaultResolved(v string) string {
+	if v == "direct" || v == "vpn" {
+		return v
+	}
+	if serverMode {
+		return "vpn"
+	}
+	return "direct"
+}
 
 var groupIDRe = regexp.MustCompile(`^g[0-9]{1,3}$`)
 
@@ -220,12 +260,14 @@ type RouteSet struct {
 	Groups   []GroupRules
 	Remotes  []string // все ссылки на внешние списки
 	Warnings []string // внешние списки, которых ещё нет в кэше, и т. п.
+	Default  string   // "" | "direct" | "vpn" — куда трафик вне списков
 }
 
 // readRouting читает direct.txt, vpn.txt, группы и подставляет сохранённые внешние списки.
 func readRouting(c *Config) (RouteSet, []string, error) {
 	var rs RouteSet
 	var errs []string
+	rs.Default = loadRouteDefault(c)
 	load := func(file string) (Rules, error) {
 		b, err := os.ReadFile(c.path(file))
 		if err != nil && !os.IsNotExist(err) {

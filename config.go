@@ -186,7 +186,9 @@ func serverConfigTune(c *Config) {
 		c.Xray.RestartCmd = "/usr/local/bin/xsub-xray-restart"
 	}
 	if len(c.Xray.ForceProxyInbounds) == 2 && c.Xray.ForceProxyInbounds[0] == "force-proxy-redirect" {
-		c.Xray.ForceProxyInbounds = []string{"in-socks"}
+		// В серверном режиме маршрут вне списков задаёт переключатель «По умолчанию»
+		// (routing.json), а безусловный force нужен только политикам XKeen.
+		c.Xray.ForceProxyInbounds = nil
 	}
 	if c.LogFile == "/tmp/xsub.log" {
 		c.LogFile = "" // журнал — в stdout (docker logs)

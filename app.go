@@ -497,6 +497,27 @@ func (a *App) saveList(ctx context.Context, name, text string) error {
 	return nil
 }
 
+// saveRouteDefault запоминает маршрут по умолчанию («direct»/«vpn» — куда идёт
+// трафик вне списков и групп) и применяет конфиг Xray.
+func (a *App) saveRouteDefault(v string) error {
+	if v != "direct" && v != "vpn" {
+		return fmt.Errorf("маршрут по умолчанию: «direct» или «vpn»")
+	}
+	b, err := marshal(map[string]any{"default": v})
+	if err != nil {
+		return err
+	}
+	if err := writeStateFile(a.c.path(routeDefFile), b); err != nil {
+		return err
+	}
+	opMu.Lock()
+	defer opMu.Unlock()
+	a.mu.Lock()
+	nodes := a.nodes
+	a.mu.Unlock()
+	return a.apply(nodes, "измён маршрут по умолчанию", false)
+}
+
 // saveGroups сохраняет группы; списки удалённых групп удаляются.
 func (a *App) saveGroups(gs []Group) error {
 	for i := range gs {

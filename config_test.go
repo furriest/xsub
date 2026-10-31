@@ -55,8 +55,8 @@ func TestServerModeDefaults(t *testing.T) {
 	if c.Xray.RestartCmd != "/usr/local/bin/xsub-xray-restart" {
 		t.Errorf("restart_cmd: %q", c.Xray.RestartCmd)
 	}
-	if len(c.Xray.ForceProxyInbounds) != 1 || c.Xray.ForceProxyInbounds[0] != "in-socks" {
-		t.Errorf("force_proxy_inbounds: %v", c.Xray.ForceProxyInbounds)
+	if len(c.Xray.ForceProxyInbounds) != 0 {
+		t.Errorf("force_proxy_inbounds: %v — в серверном режиме безусловный force не нужен, маршрут задаёт переключатель «По умолчанию»", c.Xray.ForceProxyInbounds)
 	}
 	if c.LogFile != "" {
 		t.Errorf("log_file: %q — в контейнере журнал должен идти в stdout", c.LogFile)
@@ -91,5 +91,66 @@ func TestServerModeDefaults(t *testing.T) {
 	}
 	if _, err := loadConfig(tmpl); err != nil {
 		t.Errorf("defaultConfigJSONServer не читается loadConfig: %v", err)
+	}
+}
+
+// Маршрут по умолчанию: явное значение побеждает, пустое — авто по режиму
+// (серверный: через VPN, роутер: напрямую); «через VPN» без узлов оборачивается
+// напрямую, проксировать не через кого.
+func TestRouteDefault(t *testing.T) {
+	old := serverMode
+	defer func() { serverMode = old }()
+
+	serverMode = false
+	if got := routeDefaultResolved(""); got != "direct" {
+		t.Errorf("роутер, авто: %q", got)
+	}
+	if got := routeDefaultResolved("vpn"); got != "vpn" {
+		t.Errorf("роутер, явный vpn: %q", got)
+	}
+	serverMode = true
+	if got := routeDefaultResolved(""); got != "vpn" {
+		t.Errorf("сервер, авто: %q", got)
+	}
+	if got := routeDefaultResolved("direct"); got != "direct" {
+		t.Errorf("сервер, явный direct: %q", got)
+	}
+
+	bal := map[string]any{"balancerTag": "xsub"}
+	dir := map[string]any{"outboundTag": "direct"}
+	if got := defaultTarget("", nil, dir); got["outboundTag"] != "direct" {
+		t.Errorf("vpn-дефолт без узлов должен оборачиваться напрямую: %v", got)
+	}
+	if got := defaultTarget("direct", bal, dir); got["outboundTag"] != "direct" {
+		t.Errorf("явный direct: %v", got)
+	}
+	serverMode = false
+	if got := defaultTarget("", bal, dir); got["outboundTag"] != "direct" {
+		t.Errorf("роутерский авто-дефолт — напрямую: %v", got)
+	}
+	serverMode = true
+	if got := defaultTarget("", bal, dir); got["balancerTag"] != "xsub" {
+		t.Errorf("серверный авто-дефолт — через балансировщик: %v", got)
+	}
+	if got := defaultTarget("vpn", bal, dir); got["balancerTag"] != "xsub" {
+		t.Errorf("явный vpn: %v", got)
+	}
+
+	// Хранилище: сохранённое значение читается обратно, мусор и отсутствие — «авто».
+	c := &Config{dir: t.TempDir()}
+	if got := loadRouteDefault(c); got != "" {
+		t.Errorf("файла нет: %q", got)
+	}
+	if err := os.WriteFile(c.path(routeDefFile), []byte(`{"default":"vpn"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadRouteDefault(c); got != "vpn" {
+		t.Errorf("сохранённое значение: %q", got)
+	}
+	if err := os.WriteFile(c.path(routeDefFile), []byte(`{"default":"nonsense"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := loadRouteDefault(c); got != "" {
+		t.Errorf("мусор должен давать авто: %q", got)
 	}
 }

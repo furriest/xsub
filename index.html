@@ -183,6 +183,12 @@ code{font:12px ui-monospace,Menlo,Consolas,monospace}
 <!-- Списки и группы -->
 <div data-tab="lists" class="hide">
   <section>
+    <div class="row" style="margin-bottom:10px">
+      <span data-i18n="defRoute"></span>
+      <label class="radio"><input type="radio" name="defroute" value="direct" onchange="saveRouteDef()"><span data-i18n="defDirect"></span></label>
+      <label class="radio"><input type="radio" name="defroute" value="vpn" onchange="saveRouteDef()"><span data-i18n="defVPN"></span></label>
+      <span id="defmsg" class="muted"></span>
+    </div>
     <div class="subtabs" id="listTabs"></div>
     <p class="muted" data-i18n="listHint"></p>
     <textarea id="list" spellcheck="false"></textarea>
@@ -326,7 +332,8 @@ ru: {
   lastTest:'проверен', agoMin:'мин назад', agoH:'ч назад', justNow:'только что', thNode:'Узел', thLat:'Задержка', thRel:'Надёжность', thState:'Состояние', sortHint:'щелчок — сортировка, ещё раз — наоборот, третий — как в конфиге', active:'Активен', badUntil:'исключён до', select:'Выбрать', for:'для',
   nodesHint:'Надёжность — доля удачных проверок загрузкой: активный узел проверяется при каждой проверке сторожа, каждый запасной — в фоне раз в N минут (задаётся в настройках). Задержка обновляется при каждой такой проверке. При сбое сначала выбираются надёжные узлы, потом быстрые.',
   listVPN:'Через VPN', listDirect:'Напрямую', saveApply:'Сохранить и применить', applying:'Проверяю и применяю…', applied:'Применено.', unsaved:'Есть несохранённые изменения. Переключиться без сохранения?',
-  listHint:'Одна запись на строку: example.com — с поддоменами, =example.com — только он, geosite:…, ext:файл.dat:…, IP или подсеть. Строка-ссылка https://… подключает внешний список (обновляется раз в сутки). Порядок: «Напрямую», затем группы, затем «Через VPN»; остальное — напрямую.',
+  defRoute:'Трафик вне списков и групп идёт:', defDirect:'Напрямую', defVPN:'Через VPN',
+  listHint:'Одна запись на строку: example.com — с поддоменами, =example.com — только он, geosite:…, ext:файл.dat:…, IP или подсеть. Строка-ссылка https://… подключает внешний список (обновляется раз в сутки). Порядок: «Напрямую», затем группы, затем «Через VPN»; остальное — как выбрано в «По умолчанию» выше.',
   groups:'Группы', groupsHint:'Группа отправляет свой список через свою часть узлов, например «YouTube через Нидерланды». Фильтр — регулярное выражение по имени узла. Если подходящих узлов нет, трафик группы идёт основной целью. Список группы редактируется во вкладке выше.',
   addGroup:'+ Добавить группу', saveGroups:'Сохранить группы', phGName:'Название группы', phGFilter:'Фильтр узлов, например (?i)нидерланд|NL', matched:'подходящих узлов', noGroups:'Групп нет.',
   routeTitle:'Куда пойдёт этот сайт?', routePh:'домен, ссылка или IP-адрес', routeBtn:'Проверить', rList:'Список', rRule:'Правило', rVia:'Сейчас через',
@@ -361,7 +368,8 @@ en: {
   lastTest:'checked', agoMin:'min ago', agoH:'h ago', justNow:'just now', thNode:'Node', thLat:'Latency', thRel:'Reliability', thState:'State', sortHint:'click to sort, again to reverse, third time back to config order', active:'Active', badUntil:'excluded until', select:'Select', for:'for',
   nodesHint:'Reliability is the share of successful download checks: the active node is checked on every watchdog run, each spare node in the background once per N minutes (see Settings). Latency is refreshed on every such check. On failure reliable nodes are tried first, then fast ones.',
   listVPN:'Via VPN', listDirect:'Direct', saveApply:'Save and apply', applying:'Checking and applying…', applied:'Applied.', unsaved:'You have unsaved changes. Switch anyway?',
-  listHint:'One entry per line: example.com — with subdomains, =example.com — exact, geosite:…, ext:file.dat:…, IP or subnet. A line with an https://… link adds a remote list (updated daily). Order: Direct, then groups, then Via VPN; everything else goes direct.',
+  defRoute:'Traffic outside lists and groups goes:', defDirect:'Direct', defVPN:'Via VPN',
+  listHint:'One entry per line: example.com — with subdomains, =example.com — exact, geosite:…, ext:file.dat:…, IP or subnet. A line with an https://… link adds a remote list (updated daily). Order: Direct, then groups, then Via VPN; everything else follows the "Default" toggle above.',
   groups:'Groups', groupsHint:'A group sends its own list through its own subset of nodes, e.g. "YouTube via Netherlands". The filter is a regular expression on node names. If no nodes match, the group uses the main target. Edit the group list in the tab above.',
   addGroup:'+ Add group', saveGroups:'Save groups', phGName:'Group name', phGFilter:'Node filter, e.g. (?i)netherlands|NL', matched:'matching nodes', noGroups:'No groups.',
   routeTitle:'Where will this site go?', routePh:'domain, link or IP address', routeBtn:'Check', rList:'List', rRule:'Rule', rVia:'Currently via',
@@ -709,6 +717,21 @@ async function saveFbs(list) {
 
 // ---------- списки ----------
 let curList = 'vpn', listText = {}, dirty = false;
+// Маршрут по умолчанию: куда идёт трафик вне списков и групп.
+async function loadRouteDef() {
+  try {
+    const r = await (await fetch('/api/route-default')).json();
+    document.querySelectorAll('input[name=defroute]').forEach(el => { el.checked = el.value === r.default; });
+  } catch (e) {}
+}
+async function saveRouteDef() {
+  const el = document.querySelector('input[name=defroute]:checked');
+  if (!el) return;
+  try {
+    await post('/api/route-default', JSON.stringify({default: el.value}));
+    setMsg('defmsg', 'ok', t('done'));
+  } catch (e) { setMsg('defmsg', 'bad', e.message); loadRouteDef(); }
+}
 function listNames() {
   const g = ((S && S.groups) || []).map(x => ({id: x.id, name: x.name}));
   return [{id: 'vpn', name: t('listVPN')}, {id: 'direct', name: t('listDirect')}].concat(g);
@@ -870,7 +893,7 @@ async function doUpdate() {
   renderSubs();
   await loadFbs();
   loadDiag(); setInterval(loadDiag, 300000);
-  await fetchList('vpn'); showList(); renderListTabs();
+  await fetchList('vpn'); showList(); renderListTabs(); loadRouteDef();
   // Вкладку со страницей часто оставляют открытой на неделю, а каждый опрос — это
   // работа на роутере. В скрытой вкладке опрос не нужен, при возврате обновляем сразу.
   setInterval(() => { if (!document.hidden) load(); }, 10000);

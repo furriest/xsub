@@ -203,7 +203,8 @@ func matchList(c *Config, file, target string) (rule string, notes []string) {
 	return "", notes
 }
 
-// checkTarget повторяет порядок правил в 05_routing.json: «Напрямую», группы, «Через VPN», остальное — напрямую.
+// checkTarget повторяет порядок правил в 05_routing.json: «Напрямую», группы,
+// «Через VPN», дальше — маршрут по умолчанию (переключатель на странице списков).
 func (a *App) checkTarget(input string) CheckResult {
 	t := normalizeTarget(input)
 	res := CheckResult{Input: t}
@@ -251,7 +252,12 @@ func (a *App) checkTarget(input string) CheckResult {
 				res.Notes = append(res.Notes, notes...)
 			} else {
 				res.Notes = append(res.Notes, notes...)
-				res.Route, res.Target = "direct", "Напрямую (ни в одном списке)"
+				if routeDefaultResolved(loadRouteDefault(a.c)) == "vpn" {
+					res.Route, res.Target, res.Via = "vpn", "Через VPN (ни в одном списке)", via("")
+					res.Notes = append(res.Notes, "так решил переключатель «По умолчанию» на вкладке «Списки и группы»")
+				} else {
+					res.Route, res.Target = "direct", "Напрямую (ни в одном списке)"
+				}
 			}
 		}
 	}

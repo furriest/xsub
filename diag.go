@@ -98,18 +98,7 @@ func diagnoseServer(c *Config, add func(id, level, text, fix string)) {
 		add("mode", "bad", "В confdir нет входов Xray — трафик принимать некуда.",
 			"вход in-socks при первом запуске создаёт entrypoint контейнера; чтобы пересоздать его, удалите 01_inbounds.json из confdir и перезапустите контейнер")
 	default:
-		var missing []string
-		for _, t := range c.Xray.ForceProxyInbounds {
-			if !env.InTags[t] {
-				missing = append(missing, t)
-			}
-		}
-		if len(missing) > 0 {
-			add("mode", "warn", "Нет входов с тегами "+strings.Join(missing, ", ")+" (force_proxy_inbounds) — их трафик не попадёт в балансировщик.",
-				"проверьте tag входа в confdir")
-		} else {
-			add("mode", "ok", "Входы SOCKS5 на месте: весь их трафик идёт через балансировщик xsub.", "")
-		}
+		add("mode", "ok", "Входы SOCKS5 на месте. Маршрутизацией управляют списки и переключатель «По умолчанию» на вкладке «Списки и группы».", "")
 	}
 }
 

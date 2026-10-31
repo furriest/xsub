@@ -26,9 +26,10 @@ if [ ! -f "$CONF/00_base.json" ]; then
 EOF
 fi
 
-# SOCKS5-вход. Тег in-socks совпадает с force_proxy_inbounds серверного режима:
-# весь трафик входа идёт через балансировщик xsub. Существующий файл не трогаем:
-# чтобы пересобрать вход, удалите 01_inbounds.json и перезапустите контейнер.
+# SOCKS5-вход с тегом in-socks. Маршрутизация — как на роутере: списки и группы,
+# трафик вне списков — переключатель «По умолчанию» на вкладке «Списки и группы».
+# Sniffing с routeOnly: клиенты, которые шлют IP вместо домена, всё равно попадают
+# под правила списков по имени из TLS/HTTP.
 INB="$CONF/01_inbounds.json"
 if [ ! -f "$INB" ]; then
 	PORT=${SOCKS_PORT:-1080}
@@ -61,7 +62,8 @@ if [ ! -f "$INB" ]; then
       "listen": "0.0.0.0",
       "port": $PORT,
       "protocol": "socks",
-      "settings": { $AUTH, "udp": true }
+      "settings": { $AUTH, "udp": true },
+      "sniffing": { "enabled": true, "routeOnly": true, "destOverride": ["http", "tls", "quic"] }
     }
   ]
 }

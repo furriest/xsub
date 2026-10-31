@@ -261,7 +261,8 @@ func generate(c *Config, env Env, nodes, fbs []Node, rs RouteSet) (routing, xsub
 		addRules(g.Rules, targetOf(defs[i+1]))
 	}
 	addRules(rs.VPN, mainTarget)
-	rules = append(rules, rule(map[string]any{"network": "tcp,udp"}, direct))
+	// Трафик вне списков и групп — по переключателю «По умолчанию».
+	rules = append(rules, rule(map[string]any{"network": "tcp,udp"}, defaultTarget(rs.Default, mainTarget, direct)))
 
 	rt := map[string]any{"domainStrategy": "AsIs", "rules": rules}
 	if len(nodes) > 0 {
@@ -329,6 +330,16 @@ func socksIn(tag string, port int) map[string]any {
 		"protocol": "socks",
 		"settings": map[string]any{"auth": "noauth", "udp": false},
 	}
+}
+
+// defaultTarget — куда идёт трафик, который не попал ни в один список и группу:
+// через балансировщик или напрямую. «Через VPN» без единого узла оборачивается
+// напрямую — проксировать не через кого.
+func defaultTarget(routeDefault string, mainTarget, direct map[string]any) map[string]any {
+	if routeDefaultResolved(routeDefault) == "vpn" && mainTarget != nil {
+		return mainTarget
+	}
+	return direct
 }
 
 func marshal(v any) ([]byte, error) {

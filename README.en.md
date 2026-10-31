@@ -122,7 +122,7 @@ The `ghcr.io/furriest/xsub` image is built by GitHub Actions from the same tag a
 Inside the container (server mode) things differ from the router setup:
 
 - **SOCKS5 inbound.** The entrypoint builds it on first start from `SOCKS_PORT` (1080 by default), `SOCKS_USER` and `SOCKS_PASSWORD` — file `01_inbounds.json` in the confdir. Without user/password the inbound has no authentication: do not expose such a port to the internet. To rebuild the inbound, delete the file from the confdir and restart the container.
-- **Routing.** All traffic of the `in-socks` inbound goes through the balancer unconditionally (`force_proxy_inbounds`), so the "Via VPN"/"Direct" lists and groups do not affect it. Set `force_proxy_inbounds` to an empty list in `config.json` to let the lists control routing.
+- **Routing** works exactly as on the router: "Direct" rules, then groups, then "Via VPN", and traffic outside all lists follows the **"Default"** toggle on the "Lists and groups" tab. In server mode it is set to "Via VPN" (all SOCKS traffic goes through the best node); switch it to "Direct" to send only the listed traffic via VPN.
 - **Logging** goes to stdout (`docker compose logs`); the check history lives in the `xsub-data` volume and survives container recreation.
 - **Web UI** is reachable from private addresses only (LAN, SSH tunnel `ssh -L 8099:127.0.0.1:8099 server`) unless you enable "Access from the internet" in Settings (a password is mandatory).
 - Server mode enables itself via `/.dockerenv` or the `XSUB_SERVER=1` variable. Its defaults differ: `/usr/local/bin/xray`, confdir `/data/xray`, `xsub-xray-restart` instead of `xkeen -restart`, stats next to `config.json`.
@@ -156,7 +156,7 @@ regexp:^ads\.                    # regular expression
 https://example.com/list.lst     # remote list (one domain/IP per line, dnsmasq format understood)
 ```
 
-Rule order: "Direct", then groups (in page order), then "Via VPN". Everything else goes direct.
+Rule order: "Direct", then groups (in page order), then "Via VPN". Traffic that matches no list follows the **"Default"** toggle on the same tab: direct on the router, via VPN in server mode.
 
 ## Log and flash wear
 

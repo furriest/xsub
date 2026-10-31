@@ -134,11 +134,13 @@ const defaultConfigJSONServer = `{
   "user_agent": "v2rayN/7.0",
 
   "xray": {
-    // bin, confdir, restart_cmd и force_proxy_inbounds заданы дефолтами
-    // серверного режима — в этом файле их менять не нужно.
-    // SOCKS5-вход in-socks (тег из force_proxy_inbounds) создаёт entrypoint
-    // контейнера: docker/xsub-entrypoint собирает confdir/01_inbounds.json
-    // из переменных SOCKS_PORT, SOCKS_USER и SOCKS_PASSWORD.
+    // bin, confdir и restart_cmd заданы дефолтами серверного режима —
+    // в этом файле их менять не нужно.
+    // SOCKS5-вход in-socks собирает entrypoint контейнера: confdir/01_inbounds.json
+    // из переменных SOCKS_PORT, SOCKS_USER и SOCKS_PASSWORD. Его трафик
+    // маршрутизируется как на роутере: списки и группы на вкладке
+    // «Списки и группы», а трафик вне списков — переключателем «По умолчанию»
+    // (в серверном режиме — через VPN).
     // Запасной outbound из ваших конфигов — на случай, если не работает ни один узел подписок.
     "fallback_tag": ""
   },

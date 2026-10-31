@@ -109,6 +109,21 @@ func (a *App) handler() http.Handler {
 		result(w, a.saveGroups(gs))
 	})
 
+	// маршрут по умолчанию: куда идёт трафик вне списков и групп
+	get("/api/route-default", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"default": routeDefaultResolved(loadRouteDefault(a.c))})
+	})
+	post("/api/route-default", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Default string `json:"default"`
+		}
+		if err := body(r, &req); err != nil {
+			result(w, fmt.Errorf("не удалось прочитать запрос: %v", err))
+			return
+		}
+		result(w, a.saveRouteDefault(req.Default))
+	})
+
 	// проверка окружения (XKeen, ядро, входы)
 	get("/api/diag", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, diagnose(a.c)) })
 

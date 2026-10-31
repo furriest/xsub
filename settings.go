@@ -148,7 +148,7 @@ func restartSelf() {
 
 // ---------- резервная копия ----------
 
-var backupNameRe = regexp.MustCompile(`^(config\.json|settings\.json|subscriptions\.json|groups\.json|vpn\.txt|direct\.txt|fallbacks\.json|group-g[0-9]{1,3}\.txt)$`)
+var backupNameRe = regexp.MustCompile(`^(config\.json|settings\.json|subscriptions\.json|groups\.json|routing\.json|vpn\.txt|direct\.txt|fallbacks\.json|group-g[0-9]{1,3}\.txt)$`)
 
 type Backup struct {
 	App     string            `json:"app"`
@@ -233,7 +233,7 @@ func (a *App) restoreFilesOnly(bk Backup) error {
 			}
 		}
 	}
-	for _, name := range []string{"settings.json", "groups.json", fallbacksFile} {
+	for _, name := range []string{"settings.json", "groups.json", fallbacksFile, routeDefFile} {
 		if _, ok := bk.Files[name]; !ok {
 			_ = os.Remove(a.c.path(name))
 		}
