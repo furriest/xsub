@@ -118,13 +118,15 @@ jobs:
       - id: deploy
         uses: actions/deploy-pages@v4
 
-  # Сообщение в Telegram-канал о новой версии — после публикации репозитория opkg,
-  # чтобы «opkg upgrade» и кнопка «Обновить» уже видели её.
+  # Сообщение в Telegram-канал о новой версии — только когда опубликовано всё:
+  # релиз, репозиторий opkg («opkg upgrade» и кнопка «Обновить» уже видят версию)
+  # и образ Docker (docker compose pull отдаёт новый тег). Если docker-job упал,
+  # объявление не уходит: сообщение о версии, которую ещё нельзя поставить, — обман.
   # Нужны секреты репозитория TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID (например, @xsuby);
   # бот должен быть администратором канала с правом публиковать сообщения. Без секретов шаг пропускается.
   notify:
     if: github.ref_type == 'tag'
-    needs: [build, pages]
+    needs: [build, pages, docker]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
