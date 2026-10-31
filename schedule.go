@@ -43,6 +43,7 @@ func (w *Watcher) tick() {
 	if restarted {
 		time.Sleep(time.Duration(w.c.Watch.RestartDelaySec) * time.Second)
 		lg.Printf("Xray перезапущен — закрепляю выбранные узлы снова")
+		w.probeReady(15)
 		w.repin("после перезапуска Xray")
 	}
 	for _, t := range targets {

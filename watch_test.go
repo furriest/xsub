@@ -36,6 +36,8 @@ func (f *fakeProbe) latency(port int) (int, error) {
 
 func (f *fakeProbe) internetOK() bool { return f.online }
 
+func (f *fakeProbe) probeReady(secs int) {} // в тестах ядро «поднято» всегда
+
 func (f *fakeProbe) override(balancer, tag string) error {
 	if f.bo == nil {
 		return errors.New("override не настроен")

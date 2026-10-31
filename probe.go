@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,6 +27,7 @@ type prober interface {
 	latency(port int) (int, error)
 	internetOK() bool
 	override(balancer, tag string) error
+	probeReady(secs int)
 }
 
 // xrayProbe — пробы через настоящее ядро Xray.
@@ -34,6 +36,7 @@ type xrayProbe struct{ c *Config }
 func (w *Watcher) realTest(port int) error       { return w.pr.realTest(port) }
 func (w *Watcher) latency(port int) (int, error) { return w.pr.latency(port) }
 func (w *Watcher) internetOK() bool              { return w.pr.internetOK() }
+func (w *Watcher) probeReady(secs int)           { w.pr.probeReady(secs) }
 
 func socksClient(port int, timeout time.Duration) *http.Client {
 	tr := &http.Transport{
@@ -108,6 +111,27 @@ func (x xrayProbe) internetOK() bool {
 		}
 	}
 	return false
+}
+
+// probeReady ждёт, пока на пробном входе ядра начнёт отвечать TCP. Сразу после
+// старта Xray входы поднимаются не одновременно, и проверки, поспешившие в эту
+// гонку, получают connection refused и портят статистику узлов. Дольше secs
+// секунд не ждём: лучше пара лишних неудач, чем вечный простой сторожа.
+func (x xrayProbe) probeReady(secs int) {
+	addr := fmt.Sprintf("127.0.0.1:%d", x.c.Xray.ProbePort)
+	deadline := time.Now().Add(time.Duration(secs) * time.Second)
+	for {
+		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return
+		}
+		if !time.Now().Before(deadline) {
+			lg.Printf("пробный вход %s не ответил за %d с — проверки пойдут втёмную", addr, secs)
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 // override закрепляет балансировщик за узлом (tag="" — снять закрепление).

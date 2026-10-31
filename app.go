@@ -140,6 +140,12 @@ func (a *App) afterRestart(reason string) {
 	for i := 0; i < xrayBootPolls && xrayStartTime(a.c) == ""; i++ {
 		time.Sleep(time.Second)
 	}
+	// Входы ядра поднимаются не одновременно: проверки, поспешившие в эту гонку,
+	// получают connection refused и портят статистику. Пробный вход есть, только
+	// когда есть цели — без узлов ждать нечего.
+	if len(a.w.allTargets()) > 0 {
+		a.w.probeReady(30)
+	}
 	time.Sleep(time.Duration(a.c.Watch.RestartDelaySec) * time.Second)
 	a.w.repin(reason)
 }
