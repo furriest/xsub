@@ -1,6 +1,19 @@
 #!/bin/sh
-# restart_cmd серверного режима: гасит ядро, цикл xsub-xray-run тут же поднимает
-# его с новым конфигом. Код 0 даже если процесса не было — иначе xsub счёл бы
-# перезапуск неудачным и откатил бы уже применённый конфиг.
-pkill -x xray 2>/dev/null || true
+# restart_cmd серверного режима: останавливает ядро по pid-файлу, цикл
+# xsub-xray-run тут же поднимает его с новым конфигом. kill — встроенная
+# команда shell: ей не нужен pkill из procps, которого в минимальном образе
+# может не быть (тихий пропуск pkill = ядро работает на старом конфиге).
+# Код 0 в любом случае: иначе xsub счёл бы перезапуск неудачным и откатил бы
+# уже применённый конфиг.
+PIDFILE=${XRAY_PIDFILE:-/run/xray.pid}
+if [ -f "$PIDFILE" ]; then
+	pid=$(cat "$PIDFILE")
+	if kill "$pid" 2>/dev/null; then
+		echo "xsub-xray-restart: остановлен xray (pid $pid) — цикл поднимет его с новым конфигом"
+	else
+		echo "xsub-xray-restart: pid $pid из $PIDFILE не живёт — цикл поднимет xray сам"
+	fi
+else
+	pkill -x xray 2>/dev/null || true
+fi
 exit 0

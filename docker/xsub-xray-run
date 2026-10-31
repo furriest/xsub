@@ -1,17 +1,17 @@
 #!/bin/sh
 # Держит ядро Xray запущенным. Перезапуск конфига идёт без перезапуска цикла:
-# xsub вызывает restart_cmd (xsub-xray-restart = pkill), цикл поднимает Xray
-# с уже новыми файлами в confdir.
+# xsub вызывает restart_cmd (xsub-xray-restart), тот гасит ядро по pid-файлу,
+# цикл поднимает его с уже новыми файлами в confdir.
 CONF=${XRAY_CONFDIR:-/data/xray}
-# Где ядру искать geo-файлы (geosite_itdog.dat и другие в xray.assetdir).
-# Без этой переменной Xray ищет их только рядом с бинарником и в /usr/share —
-# списки с категориями ext:…/geosite:… тогда роняют ядро при старте, при том
-# что «xray -test» от xsub (он задаёт переменную сам) это не ловит.
+# Где ядру искать geo-файлы (geosite_itdog.dat и другие из xray.assetdir). Без
+# этой переменной ядро не находит их, и списки с категориями ext:…/geosite:…
+# роняют его при старте — «xray -test» от xsub это не ловит, он задаёт её сам.
 export XRAY_LOCATION_ASSET="${XRAY_LOCATION_ASSET:-$CONF}"
+PIDFILE=${XRAY_PIDFILE:-/run/xray.pid}
 while :; do
 	/usr/local/bin/xray run -confdir "$CONF" &
-	pid=$!
-	wait "$pid"
+	echo $! > "$PIDFILE"
+	wait "$(cat "$PIDFILE")"
 	echo "xsub-xray-run: xray завершился (код $?) — запускаю заново" >&2
 	sleep 1
 done
