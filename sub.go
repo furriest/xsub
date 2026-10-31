@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
@@ -28,14 +29,15 @@ type Node struct {
 }
 
 // fetchURL качает ссылку: сначала напрямую, при неудаче — через VPN (локальный probe-вход Xray).
-func fetchURL(c *Config, u, ua string, limit int64) ([]byte, http.Header, error) {
+// Переданный контекст рвёт загрузку, когда ушёл пользователь или остановился xsub.
+func fetchURL(ctx context.Context, c *Config, u, ua string, limit int64) ([]byte, http.Header, error) {
 	try := func(proxyPort int) ([]byte, http.Header, error) {
 		tr := &http.Transport{DisableKeepAlives: true}
 		if proxyPort > 0 {
 			tr.Proxy = http.ProxyURL(&url.URL{Scheme: "socks5", Host: fmt.Sprintf("127.0.0.1:%d", proxyPort)})
 		}
 		cl := &http.Client{Transport: tr, Timeout: 90 * time.Second}
-		req, err := http.NewRequest("GET", u, nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 		if err != nil {
 			return nil, nil, err
 		}

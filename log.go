@@ -12,12 +12,15 @@ import (
 
 // Logger держит последние строки в памяти (их показывает веб-страница) и, если задан файл,
 // дописывает их туда. По умолчанию файл в /tmp — это оперативная память роутера,
-// флеш-память и USB-накопитель не изнашиваются.
+// флеш-память и USB-накопитель не изнашиваются. Дескриптор держим открытым:
+// write уходит в kernel сразу (как раньше при open/write/close), но без двух
+// лишних syscall'ов на каждую строку.
 type Logger struct {
 	mu      sync.Mutex
 	path    string
 	maxSize int64 // при превышении файл становится .old, предыдущий .old удаляется
 	ring    []string
+	f       *os.File
 }
 
 const ringSize = 300
@@ -35,16 +38,43 @@ func (l *Logger) Printf(format string, a ...any) {
 	if l.path == "" {
 		return
 	}
-	if st, err := os.Stat(l.path); err == nil && st.Size() > l.maxSize {
-		_ = os.Rename(l.path, l.path+".old")
+	l.write(line)
+}
+
+// write дописывает строку, при необходимости ротируя журнал. Под l.mu.
+func (l *Logger) write(line string) {
+	if l.f != nil {
+		if st, err := l.f.Stat(); err == nil && st.Size() > l.maxSize {
+			l.closeLocked()
+			_ = os.Rename(l.path, l.path+".old")
+		}
 	}
-	_ = os.MkdirAll(filepath.Dir(l.path), 0o755)
-	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return
+	if l.f == nil {
+		_ = os.MkdirAll(filepath.Dir(l.path), 0o755)
+		f, err := os.OpenFile(l.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return
+		}
+		l.f = f
 	}
-	fmt.Fprintln(f, line)
-	f.Close()
+	if _, err := fmt.Fprintln(l.f, line); err != nil {
+		// Дескриптор протух — следующая строка откроет файл заново.
+		l.closeLocked()
+	}
+}
+
+func (l *Logger) closeLocked() {
+	if l.f != nil {
+		_ = l.f.Close()
+		l.f = nil
+	}
+}
+
+// Close освобождает дескриптор журнала — при штатной остановке и перед exit.
+func (l *Logger) Close() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.closeLocked()
 }
 
 func (l *Logger) Tail(n int) []string {

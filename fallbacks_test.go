@@ -157,10 +157,11 @@ func TestFallbacksWithRealXray(t *testing.T) {
 		t.Fatalf("Xray не принял резервы: %v", bad)
 	}
 	nodes, _ := parseSubscription(decodeSubscription([]byte(sampleSub())), parseOpts{sockopt: map[string]any{"mark": 255}})
-	if _, err := applyConfig(c, nodes, good, "тест"); err != nil {
+	env, _ := scanEnv(c)
+	if _, err := applyConfig(c, env, nodes, good, "тест"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := applyConfig(c, nil, good, "только резервы"); err != nil {
+	if _, err := applyConfig(c, env, nil, good, "только резервы"); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(filepath.Join(c.Xray.ConfDir, xsubFile))
@@ -218,7 +219,8 @@ func TestFreshXKeenConfigs(t *testing.T) {
 	})
 	os.WriteFile(c.path("vpn.txt"), []byte("example.com\n"), 0o644)
 	nodes, _ := parseSubscription(decodeSubscription([]byte(sampleSub())), parseOpts{})
-	if _, err := applyConfig(c, nodes, nil, "свежий XKeen"); err != nil {
+	env, _ := scanEnv(c)
+	if _, err := applyConfig(c, env, nodes, nil, "свежий XKeen"); err != nil {
 		t.Fatalf("конфиг свежего XKeen: %v", err)
 	}
 	b, _ := os.ReadFile(filepath.Join(c.Xray.ConfDir, routingFile))

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
 	_ "embed"
 	"encoding/json"
@@ -49,13 +50,16 @@ func (a *App) handler() http.Handler {
 	})
 	post("/api/list", func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
-		result(w, a.saveList(r.URL.Query().Get("name"), string(b)))
+		result(w, a.saveList(r.Context(), r.URL.Query().Get("name"), string(b)))
 	})
 
 	// узлы
 	post("/api/select", func(w http.ResponseWriter, r *http.Request) {
 		var req struct{ Target, Tag string }
-		_ = body(r, &req)
+		if err := body(r, &req); err != nil {
+			result(w, fmt.Errorf("не удалось прочитать запрос: %v", err))
+			return
+		}
 		opMu.Lock()
 		defer opMu.Unlock()
 		result(w, a.w.pin(req.Target, req.Tag))
@@ -88,21 +92,11 @@ func (a *App) handler() http.Handler {
 		}
 		result(w, a.saveSubs(subs))
 	})
+	// Обновление идёт в фоне: подписки качаются до полутора минут каждая, а запрос
+	// не должен висеть. Результат виден в статусе — страница опрашивает его сама.
 	post("/api/sub/refresh", func(w http.ResponseWriter, r *http.Request) {
-		a.refreshSubs()
-		var errs []string
-		a.mu.Lock()
-		for _, st := range a.states {
-			if st.Err != "" {
-				errs = append(errs, st.Name+": "+st.Err)
-			}
-		}
-		a.mu.Unlock()
-		if len(errs) > 0 {
-			result(w, errString(strings.Join(errs, "\n")))
-			return
-		}
-		result(w, nil)
+		goSafe("обновлении подписок", func() { a.refreshSubs(context.Background()) })
+		writeJSON(w, map[string]any{"ok": true})
 	})
 
 	// группы
@@ -131,7 +125,7 @@ func (a *App) handler() http.Handler {
 
 	// geo и внешние списки
 	post("/api/geo/refresh", func(w http.ResponseWriter, r *http.Request) {
-		a.updateGeo(true)
+		a.updateGeo(r.Context(), true)
 		a.mu.Lock()
 		e := a.geoErr
 		a.mu.Unlock()
@@ -171,7 +165,7 @@ func (a *App) handler() http.Handler {
 	})
 	post("/api/telegram/test", func(w http.ResponseWriter, r *http.Request) { result(w, a.n.test()) })
 	post("/api/update/check", func(w http.ResponseWriter, r *http.Request) {
-		a.checkUpdate()
+		a.checkUpdate(r.Context())
 		a.mu.Lock()
 		l := a.latest
 		a.mu.Unlock()
@@ -182,7 +176,7 @@ func (a *App) handler() http.Handler {
 		l := a.latest
 		a.mu.Unlock()
 		if l == "" {
-			a.checkUpdate()
+			a.checkUpdate(r.Context())
 			a.mu.Lock()
 			l = a.latest
 			a.mu.Unlock()

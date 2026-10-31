@@ -66,7 +66,7 @@ func (a *App) saveSettings(s UISettings) error {
 	if err != nil {
 		return err
 	}
-	if err := writeAtomicMode(a.c.path(settingsFile), b, 0o600); err != nil {
+	if err := writeStateFile(a.c.path(settingsFile), b); err != nil {
 		return err
 	}
 	lg.Printf("настройки сохранены — перезапускаю xsub")
@@ -239,7 +239,7 @@ func (a *App) restoreFilesOnly(bk Backup) error {
 		}
 	}
 	for name, content := range bk.Files {
-		if err := writeAtomicMode(a.c.path(name), []byte(content), 0o600); err != nil {
+		if err := writeStateFile(a.c.path(name), []byte(content)); err != nil {
 			return err
 		}
 	}

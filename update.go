@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -40,11 +41,11 @@ func newerVersion(a, b string) bool {
 }
 
 // checkUpdate узнаёт последнюю версию на GitHub (раз в сутки).
-func (a *App) checkUpdate() {
+func (a *App) checkUpdate(ctx context.Context) {
 	if !validRepo(a.c.UpdateRepo) {
 		return
 	}
-	b, _, err := fetchURL(a.c, "https://api.github.com/repos/"+a.c.UpdateRepo+"/releases/latest", "xsub/"+version, 1<<20)
+	b, _, err := fetchURL(ctx, a.c, "https://api.github.com/repos/"+a.c.UpdateRepo+"/releases/latest", "xsub/"+version, 1<<20)
 	if err != nil {
 		return
 	}
@@ -145,7 +146,7 @@ func (a *App) upgrade(arch string) error {
 	name := "xsub_" + arch + ".ipk"
 
 	upLog("скачиваю SHA256SUMS")
-	sums, _, err := fetchURL(a.c, base+"/SHA256SUMS", "xsub/"+version, 1<<20)
+	sums, _, err := fetchURL(context.Background(), a.c, base+"/SHA256SUMS", "xsub/"+version, 1<<20)
 	if err != nil {
 		return fmt.Errorf("SHA256SUMS: %v", err)
 	}
@@ -155,7 +156,7 @@ func (a *App) upgrade(arch string) error {
 	}
 
 	upLog("скачиваю %s", name)
-	pkg, _, err := fetchURL(a.c, base+"/"+name, "xsub/"+version, 64<<20)
+	pkg, _, err := fetchURL(context.Background(), a.c, base+"/"+name, "xsub/"+version, 64<<20)
 	if err != nil {
 		return fmt.Errorf("%s: %v", name, err)
 	}

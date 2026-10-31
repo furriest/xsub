@@ -122,7 +122,7 @@ code{font:12px ui-monospace,Menlo,Consolas,monospace}
     <div class="row" style="margin-top:10px">
       <button data-i18n="btnAuto" onclick="act('/api/auto','msgAuto')"></button>
       <button data-i18n="btnCheck" onclick="act('/api/check','msgCheck')"></button>
-      <button data-i18n="btnSubs" onclick="act('/api/sub/refresh','msgSubs')"></button>
+      <button data-i18n="btnSubs" onclick="refreshSubs()"></button>
       <button data-i18n="btnGeo" onclick="act('/api/geo/refresh','msgGeo')"></button>
     </div>
     <div id="msg" class="muted"></div>
@@ -310,7 +310,7 @@ const I18N = {
 ru: {
   tabOverview:'Обзор', tabSubs:'Подписки', tabNodes:'Узлы', tabLists:'Списки и группы', tabRoute:'Проверка сайта', tabSettings:'Настройки', tabLog:'Журнал',
   btnAuto:'Автовыбор', btnCheck:'Проверить узлы', btnSubs:'Обновить подписки', btnGeo:'Обновить geo и списки',
-  msgAuto:'Ищу рабочие узлы…', msgCheck:'Проверяю задержку…', msgSubs:'Обновляю подписки…', msgGeo:'Обновляю geo-файлы и внешние списки…', done:'Готово.',
+  msgAuto:'Ищу рабочие узлы…', msgCheck:'Проверяю задержку…', msgSubs:'Обновляю подписки…', msgSubsLong:'Обновление ещё идёт — результат появится в статусе подписок.', msgGeo:'Обновляю geo-файлы и внешние списки…', done:'Готово.',
   mainTarget:'Основной трафик VPN', via:'идёт через', noNode:'узел не выбран — автовыбор Xray', noNodes:'нет узлов — добавьте подписку',
   manual:'вручную', down:'нет связи', lastOK:'последняя удачная проверка', day:'Доступность за сутки (по получасам)',
   events:'История', noEvents:'Пока ничего не происходило.', never:'никогда',
@@ -345,7 +345,7 @@ ru: {
 en: {
   tabOverview:'Overview', tabSubs:'Subscriptions', tabNodes:'Nodes', tabLists:'Lists & groups', tabRoute:'Site check', tabSettings:'Settings', tabLog:'Log',
   btnAuto:'Auto-select', btnCheck:'Check nodes', btnSubs:'Update subscriptions', btnGeo:'Update geo & lists',
-  msgAuto:'Looking for working nodes…', msgCheck:'Measuring latency…', msgSubs:'Updating subscriptions…', msgGeo:'Updating geo files and remote lists…', done:'Done.',
+  msgAuto:'Looking for working nodes…', msgCheck:'Measuring latency…', msgSubs:'Updating subscriptions…', msgSubsLong:'Update is still running — the result will appear in the subscriptions status.', msgGeo:'Updating geo files and remote lists…', done:'Done.',
   mainTarget:'Main VPN traffic', via:'goes via', noNode:'no node selected — Xray auto-select', noNodes:'no nodes — add a subscription',
   manual:'manual', down:'no connection', lastOK:'last successful check', day:'Availability over 24 h (half-hour slots)',
   events:'History', noEvents:'Nothing has happened yet.', never:'never',
@@ -425,6 +425,33 @@ async function act(url, key) {
   try { await post(url); setMsg('msg', 'ok', t('done')); } catch (e) { setMsg('msg', 'bad', e.message); }
   document.querySelectorAll('[data-tab="overview"] button').forEach(b => b.disabled = false);
   load();
+}
+
+// Обновление подписок идёт в фоне: сервер отвечает сразу, а «готово» показываем,
+// когда статус (опрос каждые 10 с) сообщит, что флаг refreshing снят. «Готово»
+// допустимо только после того, как флаг хоть раз был поднят: сразу после POST
+// он может быть ещё не выставлен, а сторож уже начал обновление.
+let refreshPolls = 0, refreshSeen = false;
+async function refreshSubs() {
+  document.querySelectorAll('[data-tab="overview"] button').forEach(b => b.disabled = true);
+  setMsg('msg', 'muted', t('msgSubs'));
+  try { await post('/api/sub/refresh'); refreshPolls = 60; load(); }
+  catch (e) {
+    setMsg('msg', 'bad', e.message);
+    document.querySelectorAll('[data-tab="overview"] button').forEach(b => b.disabled = false);
+  }
+}
+function watchRefresh() {
+  if (refreshPolls <= 0 || !S) return;
+  refreshPolls--;
+  if (S.refreshing) refreshSeen = true;
+  const done = refreshSeen && !S.refreshing;
+  if (done || refreshPolls === 0) {
+    refreshPolls = 0;
+    refreshSeen = false;
+    setMsg('msg', done ? 'ok' : 'muted', t(done ? 'done' : 'msgSubsLong'));
+    document.querySelectorAll('[data-tab="overview"] button').forEach(b => b.disabled = false);
+  }
 }
 
 // ---------- сортировка таблицы узлов ----------
@@ -561,6 +588,7 @@ async function pick(target, tag) {
 
 async function load() {
   try { S = await (await fetch('/api/status')).json(); } catch (e) { return; }
+  watchRefresh();
   render();
 }
 

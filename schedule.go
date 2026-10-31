@@ -54,6 +54,10 @@ func (w *Watcher) tick() {
 
 const fallbackRetry = 10 * time.Minute
 
+// retestDelay — пауза между повторной проверкой после восстановления закрепления.
+// Переменная, чтобы тесты не ждали реальные две секунды.
+var retestDelay = 2 * time.Second
+
 func (w *Watcher) checkTarget(t *Target) {
 	w.mu.Lock()
 	active, pinned, since := t.Active, t.Pinned, time.Since(t.lastSelect)
@@ -81,7 +85,7 @@ func (w *Watcher) checkTarget(t *Target) {
 		}
 		// Закрепление могло пропасть (Xray перезапускался) — восстанавливаем и проверяем ещё раз.
 		if w.override(t.Balancer, active) == nil {
-			time.Sleep(2 * time.Second)
+			time.Sleep(retestDelay)
 			if w.realTest(t.ProbePort) == nil {
 				err = nil
 			}

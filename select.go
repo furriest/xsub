@@ -3,14 +3,14 @@
 package main
 
 import (
-	"context"
 	"fmt"
+	"math"
 	"sort"
-	"strings"
 	"time"
 )
 
-// rank: сначала не помеченные «залип», затем по надёжности (история проверок), затем по задержке.
+// rank: сначала не помеченные «залип», затем по надёжности (история проверок),
+// затем по задержке; узлы без измеренной задержки — в самый конец.
 func rank(cands []*NodeState, now time.Time) {
 	sort.SliceStable(cands, func(i, j int) bool {
 		a, b := cands[i], cands[j]
@@ -21,8 +21,26 @@ func rank(cands []*NodeState, now time.Time) {
 		if ta, tb := a.Stats.tier(), b.Stats.tier(); ta != tb {
 			return ta < tb
 		}
-		return a.LatencyMs < b.LatencyMs
+		return latencyOrMax(a.LatencyMs) < latencyOrMax(b.LatencyMs)
 	})
+}
+
+// latencyOrMax: неизмеренная или несостоявшаяся замер задержка (0 и -1) считается
+// бесконечной — такой узел выбирается последним, но не исключается из выбора:
+// рабочесть решает проверка загрузкой, а задержка важна только для порядка перебора.
+func latencyOrMax(ms int) int {
+	if ms <= 0 {
+		return math.MaxInt
+	}
+	return ms
+}
+
+// latencyLabel — «123 мс» или текст для выбранного узла без измеренной задержки.
+func latencyLabel(ms int) string {
+	if ms <= 0 {
+		return "задержка не измерена"
+	}
+	return fmt.Sprintf("%d мс", ms)
 }
 
 // selectNode подбирает рабочий узел для цели. Вызывать под opMu.
@@ -35,7 +53,7 @@ func (w *Watcher) selectNode(t *Target, reason string) {
 	w.mu.Lock()
 	var cands []*NodeState
 	for _, n := range w.nodes {
-		if n.LatencyMs > 0 && t.has(n.Tag) {
+		if t.has(n.Tag) {
 			cands = append(cands, n)
 		}
 	}
@@ -72,9 +90,9 @@ func (w *Watcher) selectNode(t *Target, reason string) {
 		case wasDown:
 			w.say("up"+t.ID, "up", fmt.Sprintf("%s%s: связь восстановлена через «%s»", reason, t.where(), n.Name))
 		case prev != "" && prev != n.Tag:
-			w.say("switch"+t.ID, "switch", fmt.Sprintf("%s%s: переключено на «%s» (%d мс)", reason, t.where(), n.Name, n.LatencyMs))
+			w.say("switch"+t.ID, "switch", fmt.Sprintf("%s%s: переключено на «%s» (%s)", reason, t.where(), n.Name, latencyLabel(n.LatencyMs)))
 		case prev != n.Tag:
-			w.say("", "info", fmt.Sprintf("%s%s: выбран «%s» (%d мс, проверено узлов: %d)", reason, t.where(), n.Name, n.LatencyMs, tried))
+			w.say("", "info", fmt.Sprintf("%s%s: выбран «%s» (%s, проверено узлов: %d)", reason, t.where(), n.Name, latencyLabel(n.LatencyMs), tried))
 		}
 		return
 	}
@@ -210,17 +228,8 @@ func (w *Watcher) switchFaster() {
 
 // override закрепляет балансировщик за узлом (tag="" — снять закрепление).
 func (w *Watcher) override(balancer, tag string) error {
-	args := []string{"api", "bo", "-s", w.c.Xray.APIListen, "-b", balancer}
-	if tag == "" {
-		args = append(args, "-r")
-	} else {
-		args = append(args, tag)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	out, err := runCmd(ctx, nil, w.c.Xray.Bin, args...)
-	if err != nil {
-		return fmt.Errorf("%v: %s", err, strings.TrimSpace(tail(out, 2)))
+	if err := w.pr.override(balancer, tag); err != nil {
+		return err
 	}
 	start := xrayStartTime(w.c)
 	w.mu.Lock()

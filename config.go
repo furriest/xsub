@@ -167,6 +167,41 @@ func defaultConfig() *Config {
 	}
 }
 
+// ---------- файлы состояния (подписки, группы, резервы, настройки страницы) ----------
+
+// readStateFile читает json-файл состояния (комментарии // и /* */ допускаются).
+// Если основной файл повреждён, подхватывает .bak-копию: битый файл не должен
+// лишать xsub запуска — на роутере некому поднять упавший демон, а сторож
+// обязан продолжать работать.
+func readStateFile(path string, v any) (usedBackup bool, err error) {
+	b, rerr := os.ReadFile(path)
+	if rerr != nil {
+		return false, rerr
+	}
+	perr := json.Unmarshal(stripJSONComments(b), v)
+	if perr == nil {
+		return false, nil
+	}
+	bb, berr := os.ReadFile(path + ".bak")
+	if berr != nil {
+		return false, fmt.Errorf("%s: %v", path, perr)
+	}
+	if json.Unmarshal(stripJSONComments(bb), v) != nil {
+		return false, fmt.Errorf("%s и .bak-копия не читаются: %v", path, perr)
+	}
+	return true, nil
+}
+
+// writeStateFile пишет файл состояния атомарно и обновляет рядом .bak-копию.
+// Файлы маленькие и пишутся только действиями пользователя, двойная запись
+// не изнашивает накопитель.
+func writeStateFile(path string, b []byte) error {
+	if err := writeAtomicMode(path, b, 0o600); err != nil {
+		return err
+	}
+	return writeAtomicMode(path+".bak", b, 0o600)
+}
+
 func loadConfig(path string) (*Config, error) {
 	c := defaultConfig()
 	b, err := os.ReadFile(path)
@@ -178,9 +213,19 @@ func loadConfig(path string) (*Config, error) {
 	}
 	c.dir = filepath.Dir(path)
 	// settings.json — то, что поменяли на веб-странице; поверх config.json.
+	// Не читается — не повод умирать: продолжаем с config.json, следующее
+	// сохранение настроек всё равно перезапишет файл заново.
 	if sb, err := os.ReadFile(c.path(settingsFile)); err == nil {
 		if err := json.Unmarshal(sb, c); err != nil {
-			return nil, fmt.Errorf("%s: %w", settingsFile, err)
+			var ok bool
+			if bb, berr := os.ReadFile(c.path(settingsFile) + ".bak"); berr == nil {
+				ok = json.Unmarshal(bb, c) == nil
+			}
+			if ok {
+				fmt.Fprintf(os.Stderr, "xsub: %s повреждён — поднята .bak-копия\n", settingsFile)
+			} else {
+				fmt.Fprintf(os.Stderr, "xsub: %s не читается (%v) — настройки страницы проигнорированы\n", settingsFile, err)
+			}
 		}
 	}
 	if c.Password == "" {
@@ -234,8 +279,8 @@ const (
 
 // loadSubs читает subscriptions.json; при его отсутствии переносит подписку из старого config.json.
 func loadSubs(c *Config) ([]Subscription, error) {
-	b, err := os.ReadFile(c.path(subsFile))
-	if os.IsNotExist(err) {
+	_, ferr := os.ReadFile(c.path(subsFile))
+	if os.IsNotExist(ferr) {
 		if c.Legacy != nil && strings.HasPrefix(c.Legacy.URL, "http") {
 			s := *c.Legacy
 			s.IntervalHours = 0
@@ -251,12 +296,16 @@ func loadSubs(c *Config) ([]Subscription, error) {
 		}
 		return nil, nil
 	}
-	if err != nil {
-		return nil, err
+	if ferr != nil {
+		return nil, ferr
 	}
 	var subs []Subscription
-	if err := json.Unmarshal(stripJSONComments(b), &subs); err != nil {
-		return nil, fmt.Errorf("%s: %w", subsFile, err)
+	usedBackup, serr := readStateFile(c.path(subsFile), &subs)
+	if serr != nil {
+		return nil, serr
+	}
+	if usedBackup {
+		lg.Printf("%s повреждён — поднята .bak-копия", subsFile)
 	}
 	return subs, validateSubs(subs)
 }
@@ -295,7 +344,7 @@ func saveSubsFile(c *Config, subs []Subscription) error {
 	if err != nil {
 		return err
 	}
-	return writeAtomicMode(c.path(subsFile), b, 0o600)
+	return writeStateFile(c.path(subsFile), b)
 }
 
 // stripJSONComments убирает // и /* */ вне строк (XKeen хранит конфиги с комментариями).

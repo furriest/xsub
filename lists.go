@@ -1,9 +1,9 @@
 package main
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -76,12 +76,7 @@ func parseLine(raw string) (kind, value string, err error) {
 	return "domain", "domain:" + d, nil
 }
 
-// parseList разбирает текст списка: правила, ссылки на внешние списки, ошибки по строкам.
-func parseList(text string) (domains, ips []string, errs []string) {
-	r, _, errs := parseListFull(text)
-	return r.Domains, r.IPs, errs
-}
-
+// parseListFull разбирает текст списка: правила, ссылки на внешние списки, ошибки по строкам.
 func parseListFull(text string) (r Rules, remotes []string, errs []string) {
 	for i, raw := range strings.Split(text, "\n") {
 		kind, v, err := parseLine(raw)
@@ -145,8 +140,8 @@ func parseRemote(text string) (r Rules, skipped int) {
 }
 
 // fetchRemote скачивает внешний список в кэш. Пишет на диск только при изменении.
-func fetchRemote(c *Config, u string) error {
-	b, _, err := fetchURL(c, u, "", 32<<20)
+func fetchRemote(ctx context.Context, c *Config, u string) error {
+	b, _, err := fetchURL(ctx, c, u, "", 32<<20)
 	if err != nil {
 		return err
 	}
@@ -177,16 +172,16 @@ var groupIDRe = regexp.MustCompile(`^g[0-9]{1,3}$`)
 func groupListName(id string) string { return "group-" + id + ".txt" }
 
 func loadGroups(c *Config) ([]Group, error) {
-	b, err := os.ReadFile(c.path(groupsFile))
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
+	var gs []Group
+	usedBackup, err := readStateFile(c.path(groupsFile), &gs)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
-	var gs []Group
-	if err := json.Unmarshal(b, &gs); err != nil {
-		return nil, fmt.Errorf("%s: %w", groupsFile, err)
+	if usedBackup {
+		lg.Printf("%s повреждён — поднята .bak-копия", groupsFile)
 	}
 	return gs, validateGroups(gs)
 }

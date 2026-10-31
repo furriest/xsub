@@ -76,7 +76,8 @@ func TestParseSubscription(t *testing.T) {
 }
 
 func TestParseList(t *testing.T) {
-	d, ip, errs := parseList("Example.COM # комм\n=a.b.c\n*.x.org\nregexp:^Ab$\next:geosite_itdog.dat:youtube\n1.2.3.0/24\n2001:db8::1\nip:geoip:ru\n\n# только комментарий\nплохо!\n")
+	r, _, errs := parseListFull("Example.COM # комм\n=a.b.c\n*.x.org\nregexp:^Ab$\next:geosite_itdog.dat:youtube\n1.2.3.0/24\n2001:db8::1\nip:geoip:ru\n\n# только комментарий\nплохо!\n")
+	d, ip := r.Domains, r.IPs
 	want := []string{"domain:example.com", "full:a.b.c", "domain:x.org", "regexp:^Ab$", "ext:geosite_itdog.dat:youtube"}
 	if strings.Join(d, ",") != strings.Join(want, ",") {
 		t.Fatalf("домены: %v", d)
@@ -215,10 +216,11 @@ func TestWithRealXray(t *testing.T) {
 	os.WriteFile(c.path(groupListName("g2")), []byte("empty.example\n"), 0o644)
 
 	nodes, _ := parseSubscription(decodeSubscription([]byte(sampleSub())), parseOpts{sockopt: map[string]any{"mark": 255}})
+	env, _ := scanEnv(c)
 	if managed(c) {
 		t.Fatal("до первого применения xsub не должен считаться управляющим")
 	}
-	changed, err := applyConfig(c, nodes, nil, "тест")
+	changed, err := applyConfig(c, env, nodes, nil, "тест")
 	if err != nil || !changed {
 		t.Fatalf("applyConfig: changed=%v err=%v", changed, err)
 	}
@@ -233,14 +235,14 @@ func TestWithRealXray(t *testing.T) {
 			os.WriteFile(filepath.Join(k, filepath.Base(f)), b, 0o644)
 		}
 	}
-	if changed, err := applyConfig(c, nodes, nil, "повтор"); err != nil || changed {
+	if changed, err := applyConfig(c, env, nodes, nil, "повтор"); err != nil || changed {
 		t.Fatalf("повторное применение: changed=%v err=%v", changed, err)
 	}
-	if _, err := applyConfig(c, nil, nil, "без узлов"); err != nil {
+	if _, err := applyConfig(c, env, nil, nil, "без узлов"); err != nil {
 		t.Fatalf("без узлов: %v", err)
 	}
 	os.WriteFile(c.path("vpn.txt"), []byte("плохо но!!\n"), 0o644)
-	if _, err := applyConfig(c, nodes, nil, "битый список"); err == nil {
+	if _, err := applyConfig(c, env, nodes, nil, "битый список"); err == nil {
 		t.Fatal("битый список должен давать ошибку")
 	}
 	if err := restoreOriginals(c); err != nil {

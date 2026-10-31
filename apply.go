@@ -111,18 +111,14 @@ func restoreOriginals(c *Config) error {
 
 // applyConfig генерирует конфиг, проверяет его копию через xray -test и только потом
 // подменяет файлы и перезапускает Xray. Возвращает changed=false, если менять нечего.
-// Вызывать под opMu.
-func applyConfig(c *Config, nodes, fbs []Node, reason string) (changed bool, err error) {
+// Вызывать под opMu; env (окружение конфигов Xray) передаётся из apply — не перечитывать.
+func applyConfig(c *Config, env Env, nodes, fbs []Node, reason string) (changed bool, err error) {
 	rs, lerrs, err := readRouting(c)
 	if err != nil {
 		return false, err
 	}
 	if len(lerrs) > 0 {
 		return false, fmt.Errorf("ошибки в списках:\n%s", strings.Join(lerrs, "\n"))
-	}
-	env, err := scanEnv(c)
-	if err != nil {
-		return false, err
 	}
 	routing, xsub, err := generate(c, env, nodes, fbs, rs)
 	if err != nil {

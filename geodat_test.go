@@ -88,6 +88,41 @@ func TestGeoSiteSynthetic(t *testing.T) {
 	}
 }
 
+func TestGeoCacheEvictsByBudget(t *testing.T) {
+	geoCache.reset()
+	defer geoCache.reset()
+	mk := func(n int) []geoDomain {
+		d := make([]geoDomain, n)
+		for i := range d {
+			d[i] = geoDomain{typ: 2, value: "h.example"}
+		}
+		return d
+	}
+	geoCache.mu.Lock()
+	geoCache.putSite("big", mk(maxGeoSiteEntries))
+	geoCache.putSite("small", mk(10))
+	_, bigOK := geoCache.site["big"]
+	_, smallOK := geoCache.site["small"]
+	siteN := geoCache.siteN
+	geoCache.mu.Unlock()
+	if !smallOK || bigOK {
+		t.Fatalf("старейшая категория должна вытесняться ради бюджета: big=%v small=%v", bigOK, smallOK)
+	}
+	if siteN != 10 {
+		t.Fatalf("счётчик записей: %d", siteN)
+	}
+
+	// Категория больше бюджета в одиночку остаётся — иначе кэш не работал бы вообще.
+	geoCache.reset()
+	geoCache.mu.Lock()
+	geoCache.putSite("huge", mk(maxGeoSiteEntries+1000))
+	_, hugeOK := geoCache.site["huge"]
+	geoCache.mu.Unlock()
+	if !hugeOK {
+		t.Fatal("одиночная категория больше бюджета должна остаться в кэше")
+	}
+}
+
 func TestGeoSiteCorrupt(t *testing.T) {
 	// Запись, объявившая длину в терабайт: раньше это был make([]byte, l) и паника.
 	huge := binary.AppendUvarint([]byte{byte(1<<3 | 2)}, 1<<42)

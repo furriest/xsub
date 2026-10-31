@@ -105,16 +105,16 @@ func routerInterfaces() []IfaceInfo {
 }
 
 func loadFallbacks(c *Config) ([]Fallback, error) {
-	b, err := os.ReadFile(c.path(fallbacksFile))
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
+	var fbs []Fallback
+	usedBackup, err := readStateFile(c.path(fallbacksFile), &fbs)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, err
 	}
-	var fbs []Fallback
-	if err := json.Unmarshal(b, &fbs); err != nil {
-		return nil, fmt.Errorf("%s: %w", fallbacksFile, err)
+	if usedBackup {
+		lg.Printf("%s повреждён — поднята .bak-копия", fallbacksFile)
 	}
 	return fbs, nil
 }
@@ -127,7 +127,7 @@ func saveFallbacksFile(c *Config, fbs []Fallback) error {
 	if err != nil {
 		return err
 	}
-	return writeAtomicMode(c.path(fallbacksFile), b, 0o600)
+	return writeStateFile(c.path(fallbacksFile), b)
 }
 
 // fallbackNode переводит резерв в узел Xray с тегом fb-….

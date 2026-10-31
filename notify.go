@@ -2,15 +2,19 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
 	"sync"
 	"time"
 )
+
+// errTelegramAPI — Telegram ответил, но отказал (токен, chat_id): повторять
+// через VPN бессмысленно. Отличается от сетевой ошибки через errors.Is.
+var errTelegramAPI = errors.New("ответ Telegram")
 
 // Notifier отправляет уведомления в Telegram. api.telegram.org в России часто недоступен
 // напрямую, поэтому при неудаче сообщение уходит через VPN (локальный вход Xray).
@@ -88,7 +92,7 @@ func (n *Notifier) post(text string) error {
 		}
 		_ = json.Unmarshal(b, &r)
 		if !r.OK {
-			return fmt.Errorf("ответ Telegram: %s", firstNonEmpty(r.Description, resp.Status))
+			return fmt.Errorf("%w: %s", errTelegramAPI, firstNonEmpty(r.Description, resp.Status))
 		}
 		return nil
 	}
@@ -96,7 +100,7 @@ func (n *Notifier) post(text string) error {
 	if err == nil {
 		return nil
 	}
-	if strings.Contains(err.Error(), "ответ Telegram") {
+	if errors.Is(err, errTelegramAPI) {
 		return err // токен или chat_id неверные — через VPN не поможет
 	}
 	if err2 := try(n.c.Xray.ProbePort); err2 != nil {

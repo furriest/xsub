@@ -69,11 +69,12 @@ type Watcher struct {
 	noNet     bool                  // не отвечает ни один direct_urls — проверки приостановлены
 	xrayStart string
 
+	pr     prober                 // пробы: настоящее ядро Xray или фейк в тестах
 	notify func(key, text string) // уведомления (Telegram); может быть nil
 }
 
 func newWatcher(c *Config) *Watcher {
-	w := &Watcher{c: c, stats: map[string]*NodeStats{}}
+	w := &Watcher{c: c, stats: map[string]*NodeStats{}, pr: xrayProbe{c: c}}
 	w.loadStats()
 	return w
 }

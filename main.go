@@ -181,10 +181,20 @@ func main() {
 	defer stop()
 	lg.Printf("xsub %s запущен, веб-страница: http://%s/", version, c.Listen)
 
-	srv := &http.Server{Addr: c.Listen, Handler: a.handler(), ReadHeaderTimeout: 10 * time.Second}
+	// WriteTimeout велик: /api/update/check и проверка Telegram ходят в сеть
+	// до трёх минут. Остальные таймауты — против зависших соединений.
+	srv := &http.Server{
+		Addr:              c.Listen,
+		Handler:           a.handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      4 * time.Minute,
+		IdleTimeout:       120 * time.Second,
+	}
+	srvErr := make(chan error, 1)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			lg.Printf("веб-страница не запущена: %v", err)
+			srvErr <- err
 		}
 	}()
 
@@ -192,20 +202,34 @@ func main() {
 		safely("начальной настройке", a.startup)
 		go a.subLoop(ctx)
 		go a.healLoop(ctx)
-		go every(ctx, "обновлении geo", time.Duration(c.Geo.IntervalHours)*time.Hour, func() { a.updateGeo(true) })
+		go every(ctx, "обновлении geo", time.Duration(c.Geo.IntervalHours)*time.Hour, func() { a.updateGeo(ctx, true) })
 		go every(ctx, "сохранении истории проверок", 5*time.Minute, a.w.saveStats)
 		goSafe("проверке обновлений", func() {
 			time.Sleep(2 * time.Minute)
-			safely("проверке обновлений", a.checkUpdate)
-			every(ctx, "проверке обновлений", 24*time.Hour, a.checkUpdate)
+			safely("проверке обновлений", func() { a.checkUpdate(ctx) })
+			every(ctx, "проверке обновлений", 24*time.Hour, func() { a.checkUpdate(ctx) })
 		})
 		a.w.loop(ctx)
 	})
 
-	<-ctx.Done()
+	// Порт занят: процесс без веб-страницы бесполезен, а присмотр из cron его
+	// не перезапустит — процесс-то жив. Выходим с ошибкой, cron поднимет заново.
+	var listenErr error
+	select {
+	case <-ctx.Done():
+	case listenErr = <-srvErr:
+		lg.Printf("веб-страница не запущена: %v", listenErr)
+	}
 	a.w.saveStats() // до Shutdown: S99xsub stop добивает процесс через секунду
 	lg.Printf("xsub остановлен")
 	sctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(sctx)
+	lg.Close()
+	if listenErr != nil {
+		// log_file может быть пустым — тогда в журнал ничего не попадёт,
+		// а S99xsub при запуске перехватывает stderr в /tmp/xsub.out.
+		fmt.Fprintln(os.Stderr, "xsub: веб-страница не запущена — выход:", listenErr)
+		os.Exit(1)
+	}
 }

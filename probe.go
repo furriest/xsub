@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,24 @@ import (
 	"time"
 )
 
+// prober — то, чем сторож проверяет узлы и управляет ими: загрузка через локальный
+// вход Xray, замер задержки, доступность интернета, закрепление балансировщика
+// через API. За интерфейсом прячется настоящее ядро — в тестах его подменяет
+// фейк, и выбор узла гоняется без сети и без Xray.
+type prober interface {
+	realTest(port int) error
+	latency(port int) (int, error)
+	internetOK() bool
+	override(balancer, tag string) error
+}
+
+// xrayProbe — пробы через настоящее ядро Xray.
+type xrayProbe struct{ c *Config }
+
+func (w *Watcher) realTest(port int) error       { return w.pr.realTest(port) }
+func (w *Watcher) latency(port int) (int, error) { return w.pr.latency(port) }
+func (w *Watcher) internetOK() bool              { return w.pr.internetOK() }
+
 func socksClient(port int, timeout time.Duration) *http.Client {
 	tr := &http.Transport{
 		Proxy:             http.ProxyURL(&url.URL{Scheme: "socks5", Host: fmt.Sprintf("127.0.0.1:%d", port)}),
@@ -25,9 +44,9 @@ func socksClient(port int, timeout time.Duration) *http.Client {
 }
 
 // realTest — реальная загрузка через локальный вход Xray плюс открытие адресов из check_urls.
-func (w *Watcher) realTest(port int) error {
-	cl := socksClient(port, time.Duration(w.c.Watch.TimeoutSec)*time.Second)
-	resp, err := cl.Get(testURL(w.c))
+func (x xrayProbe) realTest(port int) error {
+	cl := socksClient(port, time.Duration(x.c.Watch.TimeoutSec)*time.Second)
+	resp, err := cl.Get(testURL(x.c))
 	if err != nil {
 		return err
 	}
@@ -35,15 +54,15 @@ func (w *Watcher) realTest(port int) error {
 		resp.Body.Close()
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	n, copyErr := io.Copy(io.Discard, io.LimitReader(resp.Body, w.c.Watch.TestBytes))
+	n, copyErr := io.Copy(io.Discard, io.LimitReader(resp.Body, x.c.Watch.TestBytes))
 	resp.Body.Close()
-	if n < w.c.Watch.TestBytes {
+	if n < x.c.Watch.TestBytes {
 		if copyErr == nil {
-			copyErr = fmt.Errorf("получено %d из %d байт", n, w.c.Watch.TestBytes)
+			copyErr = fmt.Errorf("получено %d из %d байт", n, x.c.Watch.TestBytes)
 		}
 		return fmt.Errorf("обрыв на %d байтах: %v", n, copyErr)
 	}
-	for _, u := range w.c.Watch.CheckURLs {
+	for _, u := range x.c.Watch.CheckURLs {
 		resp, err := cl.Get(u)
 		if err != nil {
 			return fmt.Errorf("%s не открывается: %s", hostOf(u), shortErr(err))
@@ -66,10 +85,10 @@ func hostOf(u string) string {
 	return u
 }
 
-func (w *Watcher) latency(port int) (int, error) {
-	cl := socksClient(port, time.Duration(w.c.Watch.TimeoutSec)*time.Second)
+func (x xrayProbe) latency(port int) (int, error) {
+	cl := socksClient(port, time.Duration(x.c.Watch.TimeoutSec)*time.Second)
 	start := time.Now()
-	resp, err := cl.Get(w.c.Watch.LatencyURL)
+	resp, err := cl.Get(x.c.Watch.LatencyURL)
 	if err != nil {
 		return -1, err
 	}
@@ -80,15 +99,32 @@ func (w *Watcher) latency(port int) (int, error) {
 	return int(time.Since(start).Milliseconds()), nil
 }
 
-func (w *Watcher) internetOK() bool {
+func (x xrayProbe) internetOK() bool {
 	cl := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
-	for _, u := range w.c.Watch.DirectURLs {
+	for _, u := range x.c.Watch.DirectURLs {
 		if resp, err := cl.Get(u); err == nil {
 			resp.Body.Close()
 			return true
 		}
 	}
 	return false
+}
+
+// override закрепляет балансировщик за узлом (tag="" — снять закрепление).
+func (x xrayProbe) override(balancer, tag string) error {
+	args := []string{"api", "bo", "-s", x.c.Xray.APIListen, "-b", balancer}
+	if tag == "" {
+		args = append(args, "-r")
+	} else {
+		args = append(args, tag)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := runCmd(ctx, nil, x.c.Xray.Bin, args...)
+	if err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(tail(out, 2)))
+	}
+	return nil
 }
 
 // setNoNet запоминает, есть ли связь с интернетом. Возвращает true, если состояние

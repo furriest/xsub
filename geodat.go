@@ -26,8 +26,12 @@ type geoDomain struct {
 
 // Категория geosite — это до сотен тысяч записей, и на роутере со 128 МБ памяти
 // держать их все подряд нельзя. Кэш помнит порядок обращений и вытесняет самые
-// давние, оставляя не больше maxGeoCached категорий каждого вида.
-const maxGeoCached = 8
+// давние. Бюджет — по суммарному числу записей, а не по числу категорий: одна
+// категория может съесть памяти больше, чем десять мелких.
+const (
+	maxGeoSiteEntries = 250_000
+	maxGeoIPEntries   = 50_000
+)
 
 type geoCacheT struct {
 	mu       sync.Mutex
@@ -35,6 +39,8 @@ type geoCacheT struct {
 	ip       map[string][]*net.IPNet
 	siteKeys []string
 	ipKeys   []string
+	siteN    int // суммарно записей в кэше каждого вида — по ним считается бюджет
+	ipN      int
 }
 
 var geoCache = &geoCacheT{}
@@ -43,20 +49,28 @@ func (g *geoCacheT) reset() {
 	g.mu.Lock()
 	g.site, g.ip = nil, nil
 	g.siteKeys, g.ipKeys = nil, nil
+	g.siteN, g.ipN = 0, 0
 	g.mu.Unlock()
 }
 
-// putSite кладёт категорию в кэш, вытесняя самую давнюю. Под g.mu.
+// putSite кладёт категорию в кэш, вытесняя самые давние, пока суммарное число
+// записей не влезет в бюджет. Категория одна больше бюджета — остаётся: иначе
+// кэш вообще не работал бы, а цикл вытеснения стал бы бесконечным. Под g.mu.
 func (g *geoCacheT) putSite(key string, d []geoDomain) {
 	if g.site == nil {
 		g.site = map[string][]geoDomain{}
 	}
-	if _, ok := g.site[key]; !ok {
+	if old, ok := g.site[key]; ok {
+		g.siteN -= len(old)
+	} else {
 		g.siteKeys = append(g.siteKeys, key)
 	}
 	g.site[key] = d
-	for len(g.siteKeys) > maxGeoCached {
-		delete(g.site, g.siteKeys[0])
+	g.siteN += len(d)
+	for g.siteN > maxGeoSiteEntries && len(g.siteKeys) > 1 {
+		oldest := g.siteKeys[0]
+		g.siteN -= len(g.site[oldest])
+		delete(g.site, oldest)
 		g.siteKeys = g.siteKeys[1:]
 	}
 }
@@ -66,12 +80,17 @@ func (g *geoCacheT) putIP(key string, n []*net.IPNet) {
 	if g.ip == nil {
 		g.ip = map[string][]*net.IPNet{}
 	}
-	if _, ok := g.ip[key]; !ok {
+	if old, ok := g.ip[key]; ok {
+		g.ipN -= len(old)
+	} else {
 		g.ipKeys = append(g.ipKeys, key)
 	}
 	g.ip[key] = n
-	for len(g.ipKeys) > maxGeoCached {
-		delete(g.ip, g.ipKeys[0])
+	g.ipN += len(n)
+	for g.ipN > maxGeoIPEntries && len(g.ipKeys) > 1 {
+		oldest := g.ipKeys[0]
+		g.ipN -= len(g.ip[oldest])
+		delete(g.ip, oldest)
 		g.ipKeys = g.ipKeys[1:]
 	}
 }
