@@ -131,9 +131,13 @@ func (a *App) sockopt() any {
 	return env.Sockopt(a.c)
 }
 
+// xrayBootPolls — сколько секунд ждать запуска ядра после перезапуска.
+// Переменная, чтобы тесты не ждали реальные двадцать секунд.
+var xrayBootPolls = 20
+
 // afterRestart: Xray перезапущен — ждём его и закрепляем узлы заново (или выбираем новые).
 func (a *App) afterRestart(reason string) {
-	for i := 0; i < 20 && xrayStartTime(a.c) == ""; i++ {
+	for i := 0; i < xrayBootPolls && xrayStartTime(a.c) == ""; i++ {
 		time.Sleep(time.Second)
 	}
 	time.Sleep(time.Duration(a.c.Watch.RestartDelaySec) * time.Second)
@@ -249,7 +253,10 @@ func (a *App) collect(ctx context.Context, fetch bool) []Node {
 		fresh := false
 		if fetch {
 			ua := firstNonEmpty(s.UserAgent, a.c.UserAgent)
-			b, h, nodes, warns, _, err := a.fetchSub(ctx, s, ua, sock, multi)
+			// := здесь был бы ловушкой: nodes/warns объявлены снаружи, а := внутри
+			// блока создал бы теневые переменные — узлы потерялись бы по пути в apply.
+			b, h, got, gw, _, err := a.fetchSub(ctx, s, ua, sock, multi)
+			nodes, warns = got, gw
 			if err != nil {
 				st.Err = err.Error()
 				lg.Printf("подписка «%s» не обновлена: %v", s.Name, err)
