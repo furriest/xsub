@@ -3,6 +3,11 @@
 # xsub вызывает restart_cmd (xsub-xray-restart = pkill), цикл поднимает Xray
 # с уже новыми файлами в confdir.
 CONF=${XRAY_CONFDIR:-/data/xray}
+# Где ядру искать geo-файлы (geosite_itdog.dat и другие в xray.assetdir).
+# Без этой переменной Xray ищет их только рядом с бинарником и в /usr/share —
+# списки с категориями ext:…/geosite:… тогда роняют ядро при старте, при том
+# что «xray -test» от xsub (он задаёт переменную сам) это не ловит.
+export XRAY_LOCATION_ASSET="${XRAY_LOCATION_ASSET:-$CONF}"
 while :; do
 	/usr/local/bin/xray run -confdir "$CONF" &
 	pid=$!
