@@ -1,0 +1,30 @@
+# xsub в Docker: SOCKS5-прокси с подписками, проверками узлов реальным трафиком
+# и выбором самого быстрого. Ядро — Xray. Документация: https://github.com/furriest/xsub
+#
+#   Установка:  docker compose up -d
+#   Обновление: docker compose pull && docker compose up -d
+#   Логи:       docker compose logs -f
+#   Веб-интерфейс: http://<адрес сервера>:8099/ (логин и пароль — в логах первого запуска)
+services:
+  xsub:
+    image: ghcr.io/furriest/xsub:latest
+    build: .            # для сборки из исходников; для установки из ghcr.io уберите эту строку
+    restart: unless-stopped
+    ports:
+      - "1080:1080"      # SOCKS5 (TCP и UDP)
+      - "8099:8099"      # веб-интерфейс xsub
+    volumes:
+      - xsub-data:/data  # конфиг, подписки, кэш, история проверок
+    environment:
+      # Если порт 1080 доступен извне, авторизация обязательна — иначе открытый прокси.
+      # Допустимые символы: буквы, цифры и _ . -
+      # SOCKS_USER: "user"
+      # SOCKS_PASSWORD: "password"
+      # SOCKS_PORT: "1080"
+      # TZ: "Europe/Moscow"
+    # Автообновление образа через watchtower:
+    # labels:
+    #   - com.centurylinklabs.watchtower.enable=true
+
+volumes:
+  xsub-data:

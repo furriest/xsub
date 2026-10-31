@@ -60,7 +60,11 @@ func (a *App) checkUpdate(ctx context.Context) {
 	a.latest = latest
 	a.mu.Unlock()
 	if newerVersion(version, latest) && a.c.Telegram.OnUpdate {
-		a.n.send("update"+latest, fmt.Sprintf("вышла новая версия xsub %s (сейчас %s) — обновить можно на странице xsub", latest, version), 365*24*time.Hour)
+		hint := "обновить можно на странице xsub"
+		if serverMode {
+			hint = "обновите контейнер: docker compose pull && docker compose up -d"
+		}
+		a.n.send("update"+latest, fmt.Sprintf("вышла новая версия xsub %s (сейчас %s) — %s", latest, version, hint), 365*24*time.Hour)
 	}
 }
 
@@ -72,6 +76,8 @@ func ipkArch() string { return ipkArchOf(runtime.GOARCH) }
 // Пустая строка — для этой архитектуры пакетов не собирают.
 func ipkArchOf(goarch string) string {
 	switch goarch {
+	case "amd64":
+		return "x86_64"
 	case "arm64":
 		return "aarch64"
 	case "mipsle":
@@ -109,6 +115,10 @@ func sumFor(sums, name string) string {
 // начиналось с «opkg update», который про VPN не знает, — на заблокированном канале он
 // молча висел, держа opkg.lock, и обновление не двигалось вообще.
 func (a *App) startUpgrade() error {
+	if serverMode {
+		// В контейнере opkg нет: xsub обновляется вместе с образом.
+		return fmt.Errorf("в Docker xsub обновляется вместе с контейнером: docker compose pull && docker compose up -d (или настройте watchtower)")
+	}
 	if !validRepo(a.c.UpdateRepo) {
 		return fmt.Errorf("update_repo в config.json должен быть вида владелец/репозиторий")
 	}

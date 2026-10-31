@@ -20,6 +20,7 @@ DESC="Подписки (ссылки, Clash, sing-box, JSON Xray), списки 
 
 # arch  GOARCH  GOMIPS     GOARM
 TARGETS=(
+  "x86_64  amd64  -          -"
   "aarch64 arm64  -          -"
   "mipsel  mipsle softfloat  -"
   "mips    mips   softfloat  -"

@@ -1,0 +1,12 @@
+#!/bin/sh
+# Держит ядро Xray запущенным. Перезапуск конфига идёт без перезапуска цикла:
+# xsub вызывает restart_cmd (xsub-xray-restart = pkill), цикл поднимает Xray
+# с уже новыми файлами в confdir.
+CONF=${XRAY_CONFDIR:-/data/xray}
+while :; do
+	/usr/local/bin/xray run -confdir "$CONF" &
+	pid=$!
+	wait "$pid"
+	echo "xsub-xray-run: xray завершился (код $?) — запускаю заново" >&2
+	sleep 1
+done

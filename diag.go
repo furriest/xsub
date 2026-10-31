@@ -68,9 +68,59 @@ func fileHasLines(path string) bool {
 	return false
 }
 
+// diagnoseServer — окружение серверного режима (Docker): вместо XKeen проверяем
+// ядро и свои входы, через которые трафик попадает в Xray.
+func diagnoseServer(c *Config, add func(id, level, text, fix string)) {
+	if _, err := os.Stat(c.Xray.Bin); err != nil {
+		add("xray", "bad", "Не найдено ядро Xray ("+c.Xray.Bin+").", "образ собран без ядра — соберите заново")
+	} else if v := xrayVersion(c.Xray.Bin); v != "" {
+		add("xray", "ok", "Ядро Xray "+v+".", "")
+	} else {
+		add("xray", "warn", "Xray найден, но не отвечает на «xray version».", "")
+	}
+
+	switch {
+	case xrayStartTime(c) != "":
+		add("core", "ok", "Xray запущен.", "")
+	case procStamp("mihomo") != "":
+		add("core", "bad", "Запущен mihomo, а xsub управляет только Xray.", "")
+	default:
+		add("core", "bad", "Xray не запущен.", "смотрите docker logs — цикл xsub-xray-run должен держать ядро запущенным")
+	}
+
+	env, err := scanEnv(c)
+	if err != nil {
+		add("conf", "bad", "Конфиги Xray не читаются: "+err.Error(), "")
+		return
+	}
+	switch {
+	case len(env.InTags) == 0:
+		add("mode", "bad", "В confdir нет входов Xray — трафик принимать некуда.",
+			"вход in-socks при первом запуске создаёт entrypoint контейнера; чтобы пересоздать его, удалите 01_inbounds.json из confdir и перезапустите контейнер")
+	default:
+		var missing []string
+		for _, t := range c.Xray.ForceProxyInbounds {
+			if !env.InTags[t] {
+				missing = append(missing, t)
+			}
+		}
+		if len(missing) > 0 {
+			add("mode", "warn", "Нет входов с тегами "+strings.Join(missing, ", ")+" (force_proxy_inbounds) — их трафик не попадёт в балансировщик.",
+				"проверьте tag входа в confdir")
+		} else {
+			add("mode", "ok", "Входы SOCKS5 на месте: весь их трафик идёт через балансировщик xsub.", "")
+		}
+	}
+}
+
 func diagnose(c *Config) []DiagItem {
 	var d []DiagItem
 	add := func(id, level, text, fix string) { d = append(d, DiagItem{id, level, text, fix}) }
+
+	if serverMode {
+		diagnoseServer(c, add)
+		return d
+	}
 
 	if _, err := os.Stat(xkeenBin); err != nil {
 		add("xkeen", "bad", "XKeen не установлен — без него трафик роутера не попадает в Xray.",

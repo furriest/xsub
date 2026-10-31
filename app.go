@@ -731,6 +731,7 @@ type AppStatus struct {
 	Version    string         `json:"version"`
 	Latest     string         `json:"latest"`
 	Refreshing bool           `json:"refreshing"` // идёт обновление подписок
+	Server     bool           `json:"server"`     // серверный режим (Docker): обновление — новым образом
 	Subs       []SubStatusOut `json:"subs"`
 	Groups     []Group        `json:"groups"`
 	GeoAt      time.Time      `json:"geo_at"`
@@ -749,7 +750,7 @@ type SubStatusOut struct {
 }
 
 func (a *App) status() AppStatus {
-	s := AppStatus{Status: a.w.status(), Version: version, Managed: managed(a.c), Refreshing: a.refreshing.Load()}
+	s := AppStatus{Status: a.w.status(), Version: version, Managed: managed(a.c), Refreshing: a.refreshing.Load(), Server: serverMode}
 	s.Groups, _ = loadGroups(a.c)
 	a.mu.Lock()
 	for _, sub := range a.subs {

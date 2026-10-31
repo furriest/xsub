@@ -167,6 +167,37 @@ func defaultConfig() *Config {
 	}
 }
 
+// serverConfigTune применяет дефолты серверного режима (Docker) к загруженному
+// конфигу: то, что админ не задал явно в config.json, должно работать из коробки.
+func serverConfigTune(c *Config) {
+	if !serverMode {
+		return
+	}
+	if c.Xray.Bin == "" || c.Xray.Bin == "/opt/sbin/xray" {
+		c.Xray.Bin = "/usr/local/bin/xray"
+	}
+	if c.Xray.ConfDir == "" || c.Xray.ConfDir == "/opt/etc/xray/configs" {
+		c.Xray.ConfDir = "/data/xray"
+	}
+	if c.Xray.AssetDir == "" || c.Xray.AssetDir == "/opt/etc/xray/dat" {
+		c.Xray.AssetDir = "/data/xray"
+	}
+	if c.Xray.RestartCmd == "" || c.Xray.RestartCmd == "xkeen -restart" {
+		c.Xray.RestartCmd = "/usr/local/bin/xsub-xray-restart"
+	}
+	if len(c.Xray.ForceProxyInbounds) == 2 && c.Xray.ForceProxyInbounds[0] == "force-proxy-redirect" {
+		c.Xray.ForceProxyInbounds = []string{"in-socks"}
+	}
+	if c.LogFile == "/tmp/xsub.log" {
+		c.LogFile = "" // журнал — в stdout (docker logs)
+	}
+	if c.Watch.StatsFile == "/tmp/xsub-stats.json" {
+		// /tmp контейнера не переживает его пересоздание: история проверок хранится
+		// рядом с config.json (пустое значение loadConfig заменит на путь в data).
+		c.Watch.StatsFile = ""
+	}
+}
+
 // ---------- файлы состояния (подписки, группы, резервы, настройки страницы) ----------
 
 // readStateFile читает json-файл состояния (комментарии // и /* */ допускаются).
@@ -230,6 +261,12 @@ func loadConfig(path string) (*Config, error) {
 	}
 	if c.Password == "" {
 		return nil, fmt.Errorf("%s: задайте password для веб-страницы", path)
+	}
+	// Серверный режим: роутерные дефолты, оставшиеся после наложения файлов,
+	// заменяем серверными; пустой stats_file получает путь рядом с config.json.
+	serverConfigTune(c)
+	if serverMode && c.Watch.StatsFile == "" {
+		c.Watch.StatsFile = c.path("xsub-stats.json")
 	}
 	if c.Watch.IntervalSec < 15 {
 		c.Watch.IntervalSec = 15

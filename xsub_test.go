@@ -308,6 +308,7 @@ func TestUpdatePackagePick(t *testing.T) {
 	sums := "aaa  install.sh\n" +
 		"b1b1  xsub_mipsel.ipk\n" +
 		"C2C2  xsub_aarch64.ipk\n" +
+		"e4e4  xsub_x86_64.ipk\n" +
 		"d3d3  xsub-0.6.0-mipsel\n"
 	if got := sumFor(sums, "xsub_mipsel.ipk"); got != "b1b1" {
 		t.Errorf("mipsel: %q", got)
@@ -323,7 +324,7 @@ func TestUpdatePackagePick(t *testing.T) {
 		t.Errorf("частичное совпадение недопустимо: %q", got)
 	}
 	// Имена архитектур должны совпадать с теми, что собирает scripts/build.sh.
-	want := map[string]string{"arm64": "aarch64", "mipsle": "mipsel", "mips": "mips", "arm": "armv7"}
+	want := map[string]string{"amd64": "x86_64", "arm64": "aarch64", "mipsle": "mipsel", "mips": "mips", "arm": "armv7"}
 	for goarch, arch := range want {
 		if got := ipkArchOf(goarch); got != arch {
 			t.Errorf("%s → %q, ожидалось %q", goarch, got, arch)
@@ -332,7 +333,7 @@ func TestUpdatePackagePick(t *testing.T) {
 			t.Errorf("в тестовом SHA256SUMS нет пакета для %s", arch)
 		}
 	}
-	if got := ipkArchOf("amd64"); got != "" {
+	if got := ipkArchOf("riscv64"); got != "" {
 		t.Errorf("для архитектуры без пакетов должно быть пусто: %q", got)
 	}
 }

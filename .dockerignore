@@ -1,0 +1,12 @@
+# В образ нужны только исходники Go и скрипты docker/ — контекст держим мелким.
+.git
+.github
+.claude
+dist
+xsub
+packaging
+scripts
+*.md
+LICENSE
+docker-compose.yml
+.dockerignore

@@ -106,6 +106,29 @@ curl -fsSL https://raw.githubusercontent.com/furriest/xsub/main/install.sh | XSU
 
 After that: `opkg update && opkg upgrade xsub`, or the "Update" button in Settings.
 
+## Docker (server, x86_64 and arm64)
+
+The same xsub in a container: the Xray core, subscriptions, the watchdog with real-traffic health checks and fastest-node selection. All traffic of the built-in SOCKS5 proxy is routed through a working subscription node.
+
+```sh
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/furriest/xsub/main/docker-compose.yml
+docker compose up -d
+```
+
+The web UI credentials (`http://<server>:8099/`) are printed to the log on first start: `docker compose logs`. Add your subscription on the Subscriptions tab.
+
+The `ghcr.io/furriest/xsub` image is built by GitHub Actions from the same tag as the release — **update with `docker compose pull && docker compose up -d`** (or watchtower using the label in the compose file). The in-app Update button is hidden in the container: the image updates, not the process.
+
+Inside the container (server mode) things differ from the router setup:
+
+- **SOCKS5 inbound.** The entrypoint builds it on first start from `SOCKS_PORT` (1080 by default), `SOCKS_USER` and `SOCKS_PASSWORD` — file `01_inbounds.json` in the confdir. Without user/password the inbound has no authentication: do not expose such a port to the internet. To rebuild the inbound, delete the file from the confdir and restart the container.
+- **Routing.** All traffic of the `in-socks` inbound goes through the balancer unconditionally (`force_proxy_inbounds`), so the "Via VPN"/"Direct" lists and groups do not affect it. Set `force_proxy_inbounds` to an empty list in `config.json` to let the lists control routing.
+- **Logging** goes to stdout (`docker compose logs`); the check history lives in the `xsub-data` volume and survives container recreation.
+- **Web UI** is reachable from private addresses only (LAN, SSH tunnel `ssh -L 8099:127.0.0.1:8099 server`) unless you enable "Access from the internet" in Settings (a password is mandatory).
+- Server mode enables itself via `/.dockerenv` or the `XSUB_SERVER=1` variable. Its defaults differ: `/usr/local/bin/xray`, confdir `/data/xray`, `xsub-xray-restart` instead of `xkeen -restart`, stats next to `config.json`.
+
+Without Docker, grab the `xsub-<version>-x86_64` binary from the release: install Xray separately, set paths and `restart_cmd` in `config.json`, and run with `XSUB_SERVER=1`.
+
 ## What changes in the Xray configs
 
 xsub writes two files to the XKeen config folder (`/opt/etc/xray/configs`):

@@ -289,7 +289,7 @@ code{font:12px ui-monospace,Menlo,Consolas,monospace}
     <h2 data-i18n="setUpdate"></h2>
     <div class="row">
       <span id="uver" class="grow"></span>
-      <button data-i18n="updCheck" onclick="updCheck()"></button>
+      <button id="updCheckBtn" data-i18n="updCheck" onclick="updCheck()"></button>
       <button class="primary" id="updBtn" data-i18n="updBtn" onclick="doUpdate()"></button>
     </div>
     <pre id="ulog" class="muted" style="margin-top:8px"></pre>
@@ -339,7 +339,7 @@ ru: {
   saveSettings:'Сохранить настройки', restarting:'Сохранено, xsub перезапускается…',
   setBackup:'Резервная копия', backupHint:'Все настройки, подписки, списки и группы одним файлом. В файле есть ссылки подписок и пароль — храните его как секрет.', backupBtn:'Скачать копию', restoreBtn:'Восстановить из файла', restoring:'Восстанавливаю…',
   diagFix:'Нужно поправить', diagTitle:'Окружение', diagHint:'После установки XKeen (ядро Xray) и xsub вручную в конфигах Xray ничего править не нужно. Здесь видно, всё ли на месте.', diagRecheck:'Проверить снова', diagCmd:'Как исправить',
-  setUpdate:'Обновление', updCheck:'Проверить', updBtn:'Обновить', curVer:'Установлена версия', newVer:'Доступна версия', upToDate:'Это последняя версия.', updStarted:'Обновление запущено, страница перезагрузится сама…', updConfirm:'Обновить xsub сейчас?', updUnknown:'Нажмите «Проверить», чтобы узнать, есть ли новая версия.',
+  setUpdate:'Обновление', updCheck:'Проверить', updBtn:'Обновить', curVer:'Установлена версия', newVer:'Доступна версия', upToDate:'Это последняя версия.', updStarted:'Обновление запущено, страница перезагрузится сама…', updConfirm:'Обновить xsub сейчас?', updUnknown:'Нажмите «Проверить», чтобы узнать, есть ли новая версия.', updDocker:'В Docker xsub обновляется вместе с образом: docker compose pull && docker compose up -d',
   bannerNew:'Доступна новая версия xsub', bannerGo:'Обновить в настройках'
 },
 en: {
@@ -374,7 +374,7 @@ en: {
   saveSettings:'Save settings', restarting:'Saved, xsub is restarting…',
   setBackup:'Backup', backupHint:'All settings, subscriptions, lists and groups in one file. It contains subscription links and the password — keep it secret.', backupBtn:'Download backup', restoreBtn:'Restore from file', restoring:'Restoring…',
   diagFix:'Needs attention', diagTitle:'Environment', diagHint:'After installing XKeen (Xray core) and xsub, nothing has to be edited in the Xray configs by hand. This shows whether everything is in place.', diagRecheck:'Check again', diagCmd:'How to fix',
-  setUpdate:'Update', updCheck:'Check', updBtn:'Update', curVer:'Installed version', newVer:'Available version', upToDate:'This is the latest version.', updStarted:'Update started, the page will reload by itself…', updConfirm:'Update xsub now?', updUnknown:'Press "Check" to see whether a new version is available.',
+  setUpdate:'Update', updCheck:'Check', updBtn:'Update', curVer:'Installed version', newVer:'Available version', upToDate:'This is the latest version.', updStarted:'Update started, the page will reload by itself…', updConfirm:'Update xsub now?', updUnknown:'Press "Check" to see whether a new version is available.', updDocker:'In Docker, xsub updates with the image: docker compose pull && docker compose up -d',
   bannerNew:'A new xsub version is available', bannerGo:'Update in Settings'
 }};
 let lang = 'ru';
@@ -799,10 +799,18 @@ async function loadSettings() {
   const lf = $('s_log_file'); if (![...lf.options].some(o => o.value === s.log_file)) lf.add(new Option(s.log_file, s.log_file)); v('s_log_file', s.log_file);
   updView();
 }
-// кнопка «Обновить» доступна, только если на GitHub есть версия новее установленной
+// кнопка «Обновить» доступна, только если на GitHub есть версия новее установленной.
+// В серверном режиме (Docker) xsub обновляется новым образом контейнера —
+// кнопок нет, версия показывается для сведения.
 function updView() {
   const cur = (S && S.version) || '', latest = (S && S.latest) || '', newer = latest && newerThan(cur, latest);
   $('uver').textContent = t('curVer') + ': ' + cur + (newer ? ' · ' + t('newVer') + ': ' + latest : latest ? ' · ' + t('upToDate') : '');
+  if (S && S.server) {
+    $('updCheckBtn').style.display = 'none';
+    $('updBtn').style.display = 'none';
+    if (newer) $('uver').textContent += ' · ' + t('updDocker');
+    return;
+  }
   $('updBtn').disabled = !newer;
   $('updBtn').title = newer ? '' : t(latest ? 'upToDate' : 'updUnknown');
 }

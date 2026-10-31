@@ -1,0 +1,72 @@
+#!/bin/sh
+# Точка входа контейнера xsub. Готовит /data при первом запуске, держит ядро
+# Xray под присмотром (xsub-xray-run) и отдаёт PID 1 процессу xsub: docker stop
+# корректно завершает веб-страницу, остальное добивает остановка контейнера.
+set -eu
+
+DATA=${XSUB_DATA:-/data}
+CONF=${XRAY_CONFDIR:-$DATA/xray}
+mkdir -p "$DATA" "$CONF"
+
+# Конфиг xsub и списки «Через VPN»/«Напрямую» — один раз, существующие не трогаем.
+if [ ! -f "$DATA/config.json" ]; then
+	xsub -init -config "$DATA/config.json"
+fi
+
+# Ядро должно стартовать ещё до добавления подписки: базовые outbound'ы.
+# После применения конфигов xsub правила маршрутизации перекроют это.
+if [ ! -f "$CONF/00_base.json" ]; then
+	cat > "$CONF/00_base.json" <<'EOF'
+{
+  "outbounds": [
+    { "tag": "direct", "protocol": "freedom" },
+    { "tag": "block", "protocol": "blackhole" }
+  ]
+}
+EOF
+fi
+
+# SOCKS5-вход. Тег in-socks совпадает с force_proxy_inbounds серверного режима:
+# весь трафик входа идёт через балансировщик xsub. Существующий файл не трогаем:
+# чтобы пересобрать вход, удалите 01_inbounds.json и перезапустите контейнер.
+INB="$CONF/01_inbounds.json"
+if [ ! -f "$INB" ]; then
+	PORT=${SOCKS_PORT:-1080}
+	U=${SOCKS_USER:-}
+	P=${SOCKS_PASSWORD:-}
+	case "$PORT" in
+		''|*[!0-9]*)
+			echo "SOCKS_PORT должен быть числом, а не \"$PORT\"" >&2
+			exit 1
+			;;
+	esac
+	case "$U$P" in
+		*[!A-Za-z0-9_.-]*)
+			echo "SOCKS_USER/SOCKS_PASSWORD: только буквы, цифры и _ . - — иначе JSON входа не соберётся" >&2
+			exit 1
+			;;
+	esac
+	if [ -n "$U" ]; then
+		AUTH="\"auth\": \"password\", \"accounts\": [{\"user\": \"$U\", \"pass\": \"$P\"}]"
+		echo "SOCKS5: авторизация $U / $P"
+	else
+		AUTH="\"auth\": \"noauth\""
+		echo "ВНИМАНИЕ: SOCKS5-порт $PORT без пароля — любой, кто достучится до него, получит открытый прокси. Задайте SOCKS_USER и SOCKS_PASSWORD." >&2
+	fi
+	cat > "$INB" <<EOF
+{
+  "inbounds": [
+    {
+      "tag": "in-socks",
+      "listen": "0.0.0.0",
+      "port": $PORT,
+      "protocol": "socks",
+      "settings": { $AUTH, "udp": true }
+    }
+  ]
+}
+EOF
+fi
+
+xsub-xray-run &
+exec xsub -config "$DATA/config.json"

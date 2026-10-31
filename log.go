@@ -19,6 +19,7 @@ type Logger struct {
 	mu      sync.Mutex
 	path    string
 	maxSize int64 // при превышении файл становится .old, предыдущий .old удаляется
+	echo    bool  // серверный режим: строки дублируются в stdout (docker logs)
 	ring    []string
 	f       *os.File
 }
@@ -34,6 +35,9 @@ func (l *Logger) Printf(format string, a ...any) {
 	l.ring = append(l.ring, line)
 	if len(l.ring) > ringSize {
 		l.ring = l.ring[len(l.ring)-ringSize:]
+	}
+	if l.echo {
+		fmt.Fprintln(os.Stdout, line)
 	}
 	if l.path == "" {
 		return

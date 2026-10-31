@@ -20,6 +20,27 @@ var (
 	defaultRepo = "furriest/xsub" // при сборке: -X main.defaultRepo=владелец/репозиторий
 )
 
+// serverMode — серверный режим (Docker на x86_64/arm64): свои пути и дефолты,
+// журнал в stdout, обновление — новым образом контейнера, а не opkg.
+// Включается переменной XSUB_SERVER=1; если она не задана — определяется
+// по /.dockerenv и /run/.containerenv, чтобы образ работал без явных настроек.
+var serverMode = detectServerMode()
+
+func detectServerMode() bool {
+	switch strings.ToLower(os.Getenv("XSUB_SERVER")) {
+	case "1", "true", "yes":
+		return true
+	case "0", "false", "no":
+		return false
+	}
+	for _, p := range []string{"/.dockerenv", "/run/.containerenv"} {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 const defaultVPN = `# Через VPN. Одна запись на строку, комментарии после #.
 #   example.com            — домен со всеми поддоменами
 #   =example.com           — только этот домен
@@ -43,6 +64,14 @@ ext:geosite_itdog.dat:telegram
 95.161.64.0/20
 149.154.160.0/20
 185.76.151.0/24
+`
+
+const defaultVPNServer = `# Через VPN. Одна запись на строку, формат как в README на GitHub.
+# В серверном режиме весь трафик SOCKS5-входа идёт через VPN принудительно
+# (см. force_proxy_inbounds в config.json) — этот список нужен, только если
+# принудительную маршрутизацию отключить.
+google.com
+youtube.com
 `
 
 const defaultDirect = `# Напрямую. Проверяется раньше списка «Через VPN» — сюда исключения.
@@ -83,6 +112,45 @@ const defaultConfigJSON = `{
 }
 `
 
+// defaultConfigJSONServer — конфиг для -init в серверном режиме. Пути к ядру,
+// confdir, restart_cmd и force_proxy_inbounds берутся из дефолтов серверного
+// режима и сюда не дублируются: менять их в файле не нужно.
+const defaultConfigJSONServer = `{
+  // Веб-страница xsub: http://<адрес сервера>:8099/
+  // Из коробки страница открывается только с частных адресов (LAN, SSH-туннель).
+  // Доступ из интернета — включите ui_allow_wan в настройках (логин и пароль обязательны).
+  "listen": "0.0.0.0:8099",
+  "user": "admin",
+  "password": "%s",
+
+  // Журнал: "" — stdout (читает docker logs); путь — файл.
+  "log_file": "",
+
+  // Подписки добавляются на веб-странице (хранятся в subscriptions.json).
+  "sub_interval_hours": 6,
+  // Панели отдают разный формат в зависимости от клиента. xsub понимает ссылки
+  // (vless, vmess, trojan, ss, hysteria2, wireguard, socks, http), Clash YAML,
+  // sing-box JSON и JSON Xray; у каждой подписки можно задать свой User-Agent.
+  "user_agent": "v2rayN/7.0",
+
+  "xray": {
+    // bin, confdir, restart_cmd и force_proxy_inbounds заданы дефолтами
+    // серверного режима — в этом файле их менять не нужно.
+    // SOCKS5-вход in-socks (тег из force_proxy_inbounds) создаёт entrypoint
+    // контейнера: docker/xsub-entrypoint собирает confdir/01_inbounds.json
+    // из переменных SOCKS_PORT, SOCKS_USER и SOCKS_PASSWORD.
+    // Запасной outbound из ваших конфигов — на случай, если не работает ни один узел подписок.
+    "fallback_tag": ""
+  },
+
+  "watchdog": {
+    "enabled": true,
+    "interval_sec": 60,
+    "fails_to_switch": 2
+  }
+}
+`
+
 func randomPassword(n int) string {
 	const alphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 	var b strings.Builder
@@ -104,12 +172,16 @@ func doInit(cfgPath string) int {
 		fmt.Println("ошибка:", err)
 		return 1
 	}
+	cfgTmpl, vpn := defaultConfigJSON, defaultVPN
+	if serverMode {
+		cfgTmpl, vpn = defaultConfigJSONServer, defaultVPNServer
+	}
 	pw := ""
 	files := []struct {
 		path, content string
 	}{
 		{cfgPath, ""},
-		{filepath.Join(dir, "vpn.txt"), defaultVPN},
+		{filepath.Join(dir, "vpn.txt"), vpn},
 		{filepath.Join(dir, "direct.txt"), defaultDirect},
 	}
 	for _, f := range files {
@@ -119,7 +191,7 @@ func doInit(cfgPath string) int {
 		content := f.content
 		if f.path == cfgPath {
 			pw = randomPassword(12)
-			content = fmt.Sprintf(defaultConfigJSON, pw)
+			content = fmt.Sprintf(cfgTmpl, pw)
 		}
 		if err := os.WriteFile(f.path, []byte(content), 0o600); err != nil {
 			fmt.Println("ошибка:", err)
@@ -129,7 +201,7 @@ func doInit(cfgPath string) int {
 	}
 	if pw != "" {
 		fmt.Println()
-		fmt.Println("Веб-страница: http://<IP-роутера>:8099/")
+		fmt.Println("Веб-страница: http://<адрес устройства>:8099/")
 		fmt.Println("Логин: admin")
 		fmt.Println("Пароль:", pw)
 		fmt.Println("(пароль можно поменять в", cfgPath+")")
@@ -167,6 +239,7 @@ func main() {
 	}
 
 	lg.path, lg.maxSize = c.LogFile, int64(c.LogMaxKB)<<10
+	lg.echo = serverMode // в контейнере журнал должен быть виден в docker logs
 	if _, err := os.Stat(c.Xray.Bin); err != nil {
 		fmt.Fprintln(os.Stderr, "xsub: не найден xray:", c.Xray.Bin)
 		os.Exit(1)

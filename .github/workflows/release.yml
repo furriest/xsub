@@ -60,6 +60,53 @@ jobs:
         with:
           path: dist/repo
 
+  # Образ Docker для серверов (linux/amd64, linux/arm64): собирается из того же
+  # тега, поэтому версия xsub в образе равна версии релиза. Пуш в ghcr.io —
+  # только по тегу; на PR и ручном запуске сборка лишь проверяется без пуша.
+  docker:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Версия
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "XSUB_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "XSUB_VERSION=dev" >> "$GITHUB_ENV"
+          fi
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.ref_type == 'tag' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ env.XSUB_VERSION }}
+
   pages:
     if: github.ref_type == 'tag'
     needs: build
@@ -98,7 +145,7 @@ jobs:
           PREV=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
           RANGE="$TAG"; [ -n "$PREV" ] && RANGE="$PREV..$TAG"
           CHANGES=$(git log --no-merges --format='• %s' "$RANGE" | head -n 30)
-          TEXT=$(printf 'Вышла xsub %s\n\n%s\n\nОбновление: кнопка «Обновить» в настройках xsub или opkg update && opkg upgrade xsub\nРелиз: https://github.com/%s/releases/tag/%s' \
+          TEXT=$(printf 'Вышла xsub %s\n\n%s\n\nОбновление: кнопка «Обновить» в настройках xsub или opkg update && opkg upgrade xsub\nDocker: docker compose pull && docker compose up -d\nРелиз: https://github.com/%s/releases/tag/%s' \
             "$TAG" "$CHANGES" "$REPO" "$TAG")
           jq -n --arg chat "$CHAT" --arg text "$TEXT" \
             '{chat_id: $chat, text: $text, disable_web_page_preview: true}' |
