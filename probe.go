@@ -88,10 +88,22 @@ func hostOf(u string) string {
 	return u
 }
 
+// latency меряет задержку до заголовков ответа. Основной адрес — latency_url,
+// но если он через узел не открывается (панели режут часть VPN-выходов, и
+// Google не исключение), меряем по test_url: узел с проходящей проверкой
+// загрузки не должен получать прочерк из-за блокировки одного измерительного
+// адреса.
 func (x xrayProbe) latency(port int) (int, error) {
+	if ms, err := x.latencyOf(port, x.c.Watch.LatencyURL); err == nil {
+		return ms, nil
+	}
+	return x.latencyOf(port, testURL(x.c))
+}
+
+func (x xrayProbe) latencyOf(port int, u string) (int, error) {
 	cl := socksClient(port, time.Duration(x.c.Watch.TimeoutSec)*time.Second)
 	start := time.Now()
-	resp, err := cl.Get(x.c.Watch.LatencyURL)
+	resp, err := cl.Get(u)
 	if err != nil {
 		return -1, err
 	}
