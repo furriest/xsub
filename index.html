@@ -41,7 +41,7 @@ nav.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
 nav.tabs button.on,.subtabs button.on{border-color:var(--acc);color:var(--acc)}
 .subtabs button.pending{border-color:var(--warn);color:var(--warn)}
 .subtabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:center}
-.subtabs .sep{flex:1 1 auto}
+.subtabs .arr{padding:0 2px;align-self:center}
 .subtabs .deflabel{padding:0 4px}
 pre{margin:0;max-height:420px;overflow:auto;font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap}
 .scroll{overflow-x:auto}
@@ -187,19 +187,13 @@ code{font:12px ui-monospace,Menlo,Consolas,monospace}
 <div data-tab="lists" class="hide">
   <section>
     <div class="subtabs" id="listTabs"></div>
-    <p class="muted" data-i18n="listHint"></p>
     <textarea id="list" spellcheck="false"></textarea>
-    <div id="listGroupsNote" class="muted hide" style="margin:6px 0" data-i18n="groupsTabHint"></div>
-    <div class="row" style="margin-top:8px">
+    <div id="groupsEditor" class="hide"></div>
+    <div class="row" style="margin-top:8px" id="listBar">
       <button class="primary" id="lsave" data-i18n="saveApply" onclick="saveList()"></button>
       <span id="lmsg" class="muted"></span>
     </div>
-  </section>
-  <section id="groupsSection">
-    <h2 data-i18n="groups"></h2>
-    <p class="muted" data-i18n="groupsHint"></p>
-    <div id="groups"></div>
-    <div class="row" style="margin-top:8px">
+    <div class="row hide" style="margin-top:8px" id="groupsBar">
       <button data-i18n="addGroup" onclick="addGroup()"></button>
       <button class="primary" id="gsave" data-i18n="saveGroups" onclick="saveGroups()"></button>
       <span id="gmsg" class="muted"></span>
@@ -331,8 +325,7 @@ ru: {
   nodesHint:'Надёжность — доля удачных проверок загрузкой: активный узел проверяется при каждой проверке сторожа, каждый запасной — в фоне раз в N минут (задаётся в настройках). Задержка обновляется при каждой такой проверке. При сбое сначала выбираются надёжные узлы, потом быстрые.',
   listVPN:'Через VPN', listDirect:'Напрямую', saveApply:'Сохранить и применить', applying:'Проверяю и применяю…', applied:'Применено.', unsaved:'Есть несохранённые изменения. Переключиться без сохранения?',
   defRoute:'По умолчанию:', defDirect:'Напрямую', defVPN:'Через VPN',
-  listHint:'Одна запись на строку: example.com — с поддоменами, =example.com — только он, geosite:…, ext:файл.dat:…, IP или подсеть. Строка-ссылка https://… подключает внешний список (обновляется раз в сутки). Порядок: «Напрямую», затем группы, затем «Через VPN»; остальное — как выбрано в «По умолчанию» справа.',
-  groups:'Группы', groupsHint:'Группа отправляет свой список через свою часть узлов, например «YouTube через Нидерланды». Фильтр — регулярное выражение по имени узла. Если подходящих узлов нет, трафик группы идёт основной целью. Список группы редактируется во вкладке выше.', groupsTabHint:'Список конкретной группы — её вкладкой в строке выше. Создание групп и фильтры узлов — в редакторе ниже.',
+  groups:'Группы',
   addGroup:'+ Добавить группу', saveGroups:'Сохранить группы', phGName:'Название группы', phGFilter:'Фильтр узлов, например (?i)нидерланд|NL', matched:'подходящих узлов', noGroups:'Групп нет.',
   routeTitle:'Куда пойдёт этот сайт?', routePh:'домен, ссылка или IP-адрес', routeBtn:'Проверить', rList:'Список', rRule:'Правило', rVia:'Сейчас через',
   setMain:'Подписки и узлы', sInterval:'Обновлять подписки', sUA:'User-Agent по умолчанию', sMax:'Узлов из подписки', none:'— нет —',
@@ -367,8 +360,7 @@ en: {
   nodesHint:'Reliability is the share of successful download checks: the active node is checked on every watchdog run, each spare node in the background once per N minutes (see Settings). Latency is refreshed on every such check. On failure reliable nodes are tried first, then fast ones.',
   listVPN:'Via VPN', listDirect:'Direct', saveApply:'Save and apply', applying:'Checking and applying…', applied:'Applied.', unsaved:'You have unsaved changes. Switch anyway?',
   defRoute:'Default:', defDirect:'Direct', defVPN:'Via VPN',
-  listHint:'One entry per line: example.com — with subdomains, =example.com — exact, geosite:…, ext:file.dat:…, IP or subnet. A line with an https://… link adds a remote list (updated daily). Order: Direct, then groups, then Via VPN; everything else follows the "Default" toggle on the right.',
-  groups:'Groups', groupsHint:'A group sends its own list through its own subset of nodes, e.g. "YouTube via Netherlands". The filter is a regular expression on node names. If no nodes match, the group uses the main target. Edit the group list in the tab above.', groupsTabHint:'Open the list of a group via its own tab in the row above. Create groups and set node filters in the editor below.',
+  groups:'Groups',
   addGroup:'+ Add group', saveGroups:'Save groups', phGName:'Group name', phGFilter:'Node filter, e.g. (?i)netherlands|NL', matched:'matching nodes', noGroups:'No groups.',
   routeTitle:'Where will this site go?', routePh:'domain, link or IP address', routeBtn:'Check', rList:'List', rRule:'Rule', rVia:'Currently via',
   setMain:'Subscriptions and nodes', sInterval:'Update subscriptions', sUA:'Default User-Agent', sMax:'Nodes per subscription', none:'— none —',
@@ -574,7 +566,7 @@ function render() {
   $('log').textContent = (s.log || []).slice().reverse().join('\n');
   if (!subsDirty && !$('subs').contains(document.activeElement)) renderSubs();
   if (!$('fbs').contains(document.activeElement)) renderFbs();
-  if (!groupsDirty && !$('groups').contains(document.activeElement)) { groups = JSON.parse(JSON.stringify(s.groups || [])); renderGroups(); }
+  if (!groupsDirty && !$('groupsEditor').contains(document.activeElement)) { groups = JSON.parse(JSON.stringify(s.groups || [])); if (curList === 'groups') renderGroups(); }
   renderListTabs();
 }
 
@@ -741,18 +733,18 @@ async function saveRouteDef(v) {
     setMsg('defmsg', 'bad', e.message);
   }
 }
-function listNames() {
-  const g = ((S && S.groups) || []).map(x => ({id: x.id, name: x.name}));
-  // Порядок — как порядок правил в конфиге: «Напрямую», группы, «Через VPN».
-  // «Группы» — не файл, а переход к редактору групп ниже.
-  return [{id: 'direct', name: t('listDirect')}, {id: 'groups', name: t('groups')}, {id: 'vpn', name: t('listVPN')}].concat(g);
-}
+// Строка вкладок — одновременно схема пути пакета: «Напрямую» → «Группы»
+// (вкладки списков самих групп рядом) → «Через VPN» → «По умолчанию».
 function renderListTabs() {
-  const names = listNames();
-  if (!names.find(x => x.id === curList)) { curList = 'vpn'; showList(); }
+  const ids = ['direct', 'groups', 'vpn'].concat(((S && S.groups) || []).map(x => x.id));
+  if (!ids.includes(curList)) { curList = 'vpn'; showList(); }
+  const tab = (id, name) => '<button class="' + (id === curList ? 'on' : '') + '" onclick="openList(\'' + esc(id) + '\')">' + esc(name) + '</button>';
+  const arrow = '<span class="arr muted">→</span>';
+  const gTabs = ((S && S.groups) || []).map(x => tab(x.id, x.name)).join('');
   $('listTabs').innerHTML =
-    names.map(x => '<button class="' + (x.id === curList ? 'on' : '') + '" onclick="openList(\'' + esc(x.id) + '\')">' + esc(x.name) + '</button>').join('') +
-    '<span class="sep"></span>' +
+    tab('direct', t('listDirect')) + arrow +
+    tab('groups', t('groups')) + gTabs + arrow +
+    tab('vpn', t('listVPN')) + arrow +
     '<span class="deflabel muted">' + esc(t('defRoute')) + '</span>' +
     '<button class="' + (routeDefPending === 'direct' ? 'pending' : routeDef === 'direct' ? 'on' : '') + '" onclick="saveRouteDef(\'direct\')">' + esc(t('defDirect')) + '</button>' +
     '<button class="' + (routeDefPending === 'vpn' ? 'pending' : routeDef === 'vpn' ? 'on' : '') + '" onclick="saveRouteDef(\'vpn\')">' + esc(t('defVPN')) + '</button>' +
@@ -765,15 +757,15 @@ async function openList(id) {
   curList = id; dirty = false;
   if (id !== 'groups' && listText[id] === undefined) await fetchList(id);
   showList(); renderListTabs();
-  if (id === 'groups') { const gs = $('groupsSection'); if (gs) gs.scrollIntoView({behavior: 'smooth', block: 'nearest'}); }
 }
 function showList() {
   const isGroups = curList === 'groups';
-  $('list').style.display = isGroups ? 'none' : '';
-  $('lsave').style.display = isGroups ? 'none' : '';
-  $('listGroupsNote').classList.toggle('hide', !isGroups);
-  if (!isGroups) $('list').value = listText[curList] || '';
-  setMsg('lmsg', 'muted', '');
+  $('list').classList.toggle('hide', isGroups);
+  $('listBar').classList.toggle('hide', isGroups);
+  $('groupsEditor').classList.toggle('hide', !isGroups);
+  $('groupsBar').classList.toggle('hide', !isGroups);
+  if (isGroups) { renderGroups(); setMsg('gmsg', 'muted', ''); }
+  else { $('list').value = listText[curList] || ''; setMsg('lmsg', 'muted', ''); }
 }
 $('list').addEventListener('input', () => dirty = true);
 async function saveList() {
@@ -789,7 +781,7 @@ async function saveList() {
 let groups = [], groupsDirty = false;
 function renderGroups() {
   const ts = (S && S.targets) || [], nodes = (S && S.nodes) || [];
-  $('groups').innerHTML = groups.map((g, i) => {
+  $('groupsEditor').innerHTML = groups.map((g, i) => {
     let cnt = '';
     if (g.filter !== undefined) {
       try { const re = new RegExp(g.filter.replace(/^\(\?i\)/, ''), g.filter.startsWith('(?i)') ? 'i' : ''); cnt = nodes.filter(n => re.test(n.name)).length; } catch (e) { cnt = '?'; }
