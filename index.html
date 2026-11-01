@@ -39,6 +39,7 @@ th{color:var(--muted);font-weight:500}
 tr.active td{background:color-mix(in srgb,var(--acc) 12%,transparent)}
 nav.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
 nav.tabs button.on,.subtabs button.on{border-color:var(--acc);color:var(--acc)}
+.subtabs button.pending{border-color:var(--warn);color:var(--warn)}
 .subtabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;align-items:center}
 .subtabs .sep{flex:1 1 auto}
 .subtabs .deflabel{padding:0 4px}
@@ -714,19 +715,30 @@ async function saveFbs(list) {
 // ---------- списки ----------
 let curList = 'vpn', listText = {}, dirty = false;
 // Маршрут по умолчанию: куда идёт трафик вне списков и групп. Кнопки выбора
-// рисуются справа в строке вкладок списков; выбранная подсвечена как вкладка.
-let routeDef = '';
+// рисуются справа в строке вкладок списков; выбранная подсвечена как вкладка,
+// нажатая — жёлтой «pending»-подсветкой до конца применения (см. saveRouteDef).
+let routeDef = '', routeDefPending = '';
 async function loadRouteDef() {
   try { routeDef = (await (await fetch('/api/route-default')).json()).default || 'direct'; }
   catch (e) {}
   renderListTabs();
 }
 async function saveRouteDef(v) {
+  // Первая реакция на клик — мгновенная: кнопка желтеет до return'а из
+  // обработчика. Иначе применение (это перезапуск Xray, секунды) выглядит
+  // как бездействие, и на кнопку давят ещё раз.
+  routeDefPending = v;
+  renderListTabs();
   try {
     await post('/api/route-default', JSON.stringify({default: v}));
-    routeDef = v; renderListTabs();
+    routeDef = v; routeDefPending = '';
+    renderListTabs();
     setMsg('defmsg', 'ok', t('done'));
-  } catch (e) { setMsg('defmsg', 'bad', e.message); }
+  } catch (e) {
+    routeDefPending = '';
+    renderListTabs();
+    setMsg('defmsg', 'bad', e.message);
+  }
 }
 function listNames() {
   const g = ((S && S.groups) || []).map(x => ({id: x.id, name: x.name}));
@@ -739,8 +751,8 @@ function renderListTabs() {
     names.map(x => '<button class="' + (x.id === curList ? 'on' : '') + '" onclick="openList(\'' + esc(x.id) + '\')">' + esc(x.name) + '</button>').join('') +
     '<span class="sep"></span>' +
     '<span class="deflabel muted">' + esc(t('defRoute')) + '</span>' +
-    '<button class="' + (routeDef === 'direct' ? 'on' : '') + '" onclick="saveRouteDef(\'direct\')">' + esc(t('defDirect')) + '</button>' +
-    '<button class="' + (routeDef === 'vpn' ? 'on' : '') + '" onclick="saveRouteDef(\'vpn\')">' + esc(t('defVPN')) + '</button>' +
+    '<button class="' + (routeDefPending === 'direct' ? 'pending' : routeDef === 'direct' ? 'on' : '') + '" onclick="saveRouteDef(\'direct\')">' + esc(t('defDirect')) + '</button>' +
+    '<button class="' + (routeDefPending === 'vpn' ? 'pending' : routeDef === 'vpn' ? 'on' : '') + '" onclick="saveRouteDef(\'vpn\')">' + esc(t('defVPN')) + '</button>' +
     '<span id="defmsg" class="muted"></span>';
 }
 function renderLists() { renderListTabs(); }
