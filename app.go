@@ -137,7 +137,14 @@ var xrayBootPolls = 20
 
 // afterRestart: Xray перезапущен — ждём его и закрепляем узлы заново (или выбираем новые).
 func (a *App) afterRestart(reason string) {
-	for i := 0; i < xrayBootPolls && xrayStartTime(a.c) == ""; i++ {
+	// Ждём смены штампа, а не просто «ядро запущено»: xkeen -restart держит
+	// старое ядро живым заметное время, и проверки против него получают
+	// connection refused или потерянное закрепление.
+	was := xrayStartTime(a.c)
+	for i := 0; i < xrayBootPolls; i++ {
+		if st := xrayStartTime(a.c); st != "" && st != was {
+			break
+		}
 		time.Sleep(time.Second)
 	}
 	// Входы ядра поднимаются не одновременно: проверки, поспешившие в эту гонку,
