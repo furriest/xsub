@@ -10,6 +10,7 @@ services:
     image: ghcr.io/furriest/xsub:latest
     build: .            # для сборки из исходников; для установки из ghcr.io уберите эту строку
     restart: unless-stopped
+    hostname: ${XSUB_HOSTNAME:-xsub}   # имя в заголовке веб-страницы и в Telegram; задать своё: XSUB_HOSTNAME=gw-msk
     ports:
       - "1080:1080"      # SOCKS5 (TCP и UDP)
       - "8099:8099"      # веб-интерфейс xsub
