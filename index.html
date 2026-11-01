@@ -524,7 +524,7 @@ function strip(slots) {
 function render() {
   if (!S) return;
   const s = S;
-  $('ver').textContent = s.version || '';
+  $('ver').textContent = (s.version || '') + (s.host ? ' · ' + s.host : '');
   const newer = s.latest && newerThan(s.version, s.latest);
   $('updBanner').classList.toggle('hide', !newer);
   if (newer) $('updBanner').innerHTML = esc(t('bannerNew')) + ' ' + esc(s.latest) + ' — <a href="#" onclick="tab(\'settings\');return false">' + esc(t('bannerGo')) + '</a>';

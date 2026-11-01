@@ -756,6 +756,7 @@ func every(ctx context.Context, what string, d time.Duration, f func()) {
 type AppStatus struct {
 	Status
 	Version    string         `json:"version"`
+	Host       string         `json:"host"`       // имя устройства — в заголовке страницы
 	Latest     string         `json:"latest"`
 	Refreshing bool           `json:"refreshing"` // идёт обновление подписок
 	Server     bool           `json:"server"`     // серверный режим (Docker): обновление — новым образом
@@ -777,7 +778,7 @@ type SubStatusOut struct {
 }
 
 func (a *App) status() AppStatus {
-	s := AppStatus{Status: a.w.status(), Version: version, Managed: managed(a.c), Refreshing: a.refreshing.Load(), Server: serverMode}
+	s := AppStatus{Status: a.w.status(), Version: version, Host: hostName, Managed: managed(a.c), Refreshing: a.refreshing.Load(), Server: serverMode}
 	s.Groups, _ = loadGroups(a.c)
 	a.mu.Lock()
 	for _, sub := range a.subs {

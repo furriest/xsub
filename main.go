@@ -18,6 +18,10 @@ import (
 var (
 	version     = "dev"
 	defaultRepo = "furriest/xsub" // при сборке: -X main.defaultRepo=владелец/репозиторий
+
+	// hostName — имя устройства: в заголовке страницы и в уведомлениях,
+	// чтобы различать несколько xsub (роутеры, серверы) в одном чате.
+	hostName, _ = os.Hostname()
 )
 
 // serverMode — серверный режим (Docker на x86_64/arm64): свои пути и дефолты,

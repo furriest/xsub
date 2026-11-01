@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"sync"
 	"time"
 )
@@ -66,9 +65,8 @@ func (n *Notifier) send(key, text string, gap time.Duration) {
 }
 
 func (n *Notifier) post(text string) error {
-	host, _ := os.Hostname()
-	if host != "" {
-		text = "xsub (" + host + "): " + text
+	if hostName != "" {
+		text = "xsub (" + hostName + "): " + text
 	} else {
 		text = "xsub: " + text
 	}
