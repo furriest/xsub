@@ -189,12 +189,13 @@ code{font:12px ui-monospace,Menlo,Consolas,monospace}
     <div class="subtabs" id="listTabs"></div>
     <p class="muted" data-i18n="listHint"></p>
     <textarea id="list" spellcheck="false"></textarea>
+    <div id="listGroupsNote" class="muted hide" style="margin:6px 0" data-i18n="groupsTabHint"></div>
     <div class="row" style="margin-top:8px">
       <button class="primary" id="lsave" data-i18n="saveApply" onclick="saveList()"></button>
       <span id="lmsg" class="muted"></span>
     </div>
   </section>
-  <section>
+  <section id="groupsSection">
     <h2 data-i18n="groups"></h2>
     <p class="muted" data-i18n="groupsHint"></p>
     <div id="groups"></div>
@@ -331,7 +332,7 @@ ru: {
   listVPN:'Через VPN', listDirect:'Напрямую', saveApply:'Сохранить и применить', applying:'Проверяю и применяю…', applied:'Применено.', unsaved:'Есть несохранённые изменения. Переключиться без сохранения?',
   defRoute:'По умолчанию:', defDirect:'Напрямую', defVPN:'Через VPN',
   listHint:'Одна запись на строку: example.com — с поддоменами, =example.com — только он, geosite:…, ext:файл.dat:…, IP или подсеть. Строка-ссылка https://… подключает внешний список (обновляется раз в сутки). Порядок: «Напрямую», затем группы, затем «Через VPN»; остальное — как выбрано в «По умолчанию» справа.',
-  groups:'Группы', groupsHint:'Группа отправляет свой список через свою часть узлов, например «YouTube через Нидерланды». Фильтр — регулярное выражение по имени узла. Если подходящих узлов нет, трафик группы идёт основной целью. Список группы редактируется во вкладке выше.',
+  groups:'Группы', groupsHint:'Группа отправляет свой список через свою часть узлов, например «YouTube через Нидерланды». Фильтр — регулярное выражение по имени узла. Если подходящих узлов нет, трафик группы идёт основной целью. Список группы редактируется во вкладке выше.', groupsTabHint:'Список конкретной группы — её вкладкой в строке выше. Создание групп и фильтры узлов — в редакторе ниже.',
   addGroup:'+ Добавить группу', saveGroups:'Сохранить группы', phGName:'Название группы', phGFilter:'Фильтр узлов, например (?i)нидерланд|NL', matched:'подходящих узлов', noGroups:'Групп нет.',
   routeTitle:'Куда пойдёт этот сайт?', routePh:'домен, ссылка или IP-адрес', routeBtn:'Проверить', rList:'Список', rRule:'Правило', rVia:'Сейчас через',
   setMain:'Подписки и узлы', sInterval:'Обновлять подписки', sUA:'User-Agent по умолчанию', sMax:'Узлов из подписки', none:'— нет —',
@@ -367,7 +368,7 @@ en: {
   listVPN:'Via VPN', listDirect:'Direct', saveApply:'Save and apply', applying:'Checking and applying…', applied:'Applied.', unsaved:'You have unsaved changes. Switch anyway?',
   defRoute:'Default:', defDirect:'Direct', defVPN:'Via VPN',
   listHint:'One entry per line: example.com — with subdomains, =example.com — exact, geosite:…, ext:file.dat:…, IP or subnet. A line with an https://… link adds a remote list (updated daily). Order: Direct, then groups, then Via VPN; everything else follows the "Default" toggle on the right.',
-  groups:'Groups', groupsHint:'A group sends its own list through its own subset of nodes, e.g. "YouTube via Netherlands". The filter is a regular expression on node names. If no nodes match, the group uses the main target. Edit the group list in the tab above.',
+  groups:'Groups', groupsHint:'A group sends its own list through its own subset of nodes, e.g. "YouTube via Netherlands". The filter is a regular expression on node names. If no nodes match, the group uses the main target. Edit the group list in the tab above.', groupsTabHint:'Open a group's list via its own tab in the row above. Create groups and set node filters in the editor below.',
   addGroup:'+ Add group', saveGroups:'Save groups', phGName:'Group name', phGFilter:'Node filter, e.g. (?i)netherlands|NL', matched:'matching nodes', noGroups:'No groups.',
   routeTitle:'Where will this site go?', routePh:'domain, link or IP address', routeBtn:'Check', rList:'List', rRule:'Rule', rVia:'Currently via',
   setMain:'Subscriptions and nodes', sInterval:'Update subscriptions', sUA:'Default User-Agent', sMax:'Nodes per subscription', none:'— none —',
@@ -742,7 +743,9 @@ async function saveRouteDef(v) {
 }
 function listNames() {
   const g = ((S && S.groups) || []).map(x => ({id: x.id, name: x.name}));
-  return [{id: 'vpn', name: t('listVPN')}, {id: 'direct', name: t('listDirect')}].concat(g);
+  // Порядок — как порядок правил в конфиге: «Напрямую», группы, «Через VPN».
+  // «Группы» — не файл, а переход к редактору групп ниже.
+  return [{id: 'direct', name: t('listDirect')}, {id: 'groups', name: t('groups')}, {id: 'vpn', name: t('listVPN')}].concat(g);
 }
 function renderListTabs() {
   const names = listNames();
@@ -760,10 +763,18 @@ async function fetchList(id) { listText[id] = await (await fetch('/api/list?name
 async function openList(id) {
   if (dirty && !confirm(t('unsaved'))) return;
   curList = id; dirty = false;
-  if (listText[id] === undefined) await fetchList(id);
+  if (id !== 'groups' && listText[id] === undefined) await fetchList(id);
   showList(); renderListTabs();
+  if (id === 'groups') { const gs = $('groupsSection'); if (gs) gs.scrollIntoView({behavior: 'smooth', block: 'nearest'}); }
 }
-function showList() { $('list').value = listText[curList] || ''; setMsg('lmsg', 'muted', ''); }
+function showList() {
+  const isGroups = curList === 'groups';
+  $('list').style.display = isGroups ? 'none' : '';
+  $('lsave').style.display = isGroups ? 'none' : '';
+  $('listGroupsNote').classList.toggle('hide', !isGroups);
+  if (!isGroups) $('list').value = listText[curList] || '';
+  setMsg('lmsg', 'muted', '');
+}
 $('list').addEventListener('input', () => dirty = true);
 async function saveList() {
   $('lsave').disabled = true; setMsg('lmsg', 'muted', t('applying'));
