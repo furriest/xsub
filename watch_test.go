@@ -203,6 +203,64 @@ func TestSwitchFasterMovesToQuickerNode(t *testing.T) {
 	}
 }
 
+// Решение о переходе на быстрый узел принимается по свежему замеру обоих
+// в один момент: хранимые задержки сняты в разные моменты, и шум канала или
+// процессора превращался в ложную разницу и ложные переключения.
+func TestSwitchFasterConfirmsWithFreshMeasurement(t *testing.T) {
+	f := &fakeProbe{
+		lat: map[int]int{11000: 100, 11001: 50},
+		load: map[int]error{
+			11000: nil, 11001: nil,
+			10990: nil,
+		},
+		online: true, bo: map[string]string{},
+	}
+	c := defaultConfig()
+	c.Watch.SwitchFasterMs = 40
+	c.Watch.StatsFile = ""
+	w := newWatcher(c)
+	w.pr = f
+	w.setNodes([]Node{mkNode("node-a", "A"), mkNode("node-b", "B")}, nil,
+		[]TargetDef{{Name: "основной", Balancer: c.Xray.Balancer, ProbePort: c.Xray.ProbePort}})
+	tgt := w.target("")
+	w.mu.Lock()
+	tgt.Active = "node-a"
+	tgt.lastSelect = time.Now().Add(-time.Hour)
+	w.mu.Unlock()
+	w.checkAll() // хранимые задержки: A=100, B=50
+
+	// Хранимые значения отобрали кандидата, а свежий замер показывает узлы
+	// близкими: общий шум, а не реальная разница. Переключаться нельзя.
+	f.lat = map[int]int{11000: 60, 11001: 55}
+	w.switchFaster()
+	if got := activeTag(w); got != "node-a" {
+		t.Fatalf("свежий замер не подтвердил разницу, а переключились на %s", got)
+	}
+	if f.bo["xsub"] != "" {
+		t.Fatalf("балансировщик тронут: %q", f.bo["xsub"])
+	}
+	if n := w.node("node-b"); n.LatencyMs != 55 {
+		t.Fatalf("свежая задержка кандидата должна записаться: %d", n.LatencyMs)
+	}
+
+	// Свежий замер подтверждает разницу — переключаемся.
+	f.lat = map[int]int{11000: 100, 11001: 40}
+	w.checkAll()
+	w.switchFaster()
+	if got := activeTag(w); got != "node-b" {
+		t.Fatalf("свежий замер подтвердил разницу, а остались на %s", got)
+	}
+
+	// Свежий замер не вышел — цикл пропускается без решения по старым числам.
+	f.lat = map[int]int{11000: 100, 11001: 50}
+	w.checkAll()
+	delete(f.lat, 11001)
+	w.switchFaster()
+	if got := activeTag(w); got != "node-b" {
+		t.Fatalf("замер не вышел, а переключились на %s", got)
+	}
+}
+
 func TestPickDueDistributesChecks(t *testing.T) {
 	now := time.Now()
 	nodes := []*NodeState{

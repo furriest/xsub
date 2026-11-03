@@ -175,9 +175,38 @@ func (w *Watcher) faster(t *Target) *NodeState {
 	return best
 }
 
+// latencyPair — задержки двух узлов, измеренные в одну очередь: по два замера
+// с чередованием, берётся лучший у каждого. Хранимые задержки сняты в разные
+// моменты (активный — на тике, запасной — на фоновом цикле до получаса назад),
+// и сравнение «померянного под нагрузкой» с «померянным в тишине» давало
+// ложные переходы. Съёмка в один момент сокращает общий шум роутера и канала,
+// оставляя честную разницу маршрутов. Первый замер узла обязан пройти;
+// провал второго терпим — берём первый.
+func (w *Watcher) latencyPair(a, b *NodeState) (int, int, error) {
+	a1, err := w.latency(a.TestPort)
+	if err != nil {
+		return -1, -1, err
+	}
+	b1, err := w.latency(b.TestPort)
+	if err != nil {
+		return -1, -1, err
+	}
+	if a2, err := w.latency(a.TestPort); err == nil && a2 < a1 {
+		a1 = a2
+	}
+	if b2, err := w.latency(b.TestPort); err == nil && b2 < b1 {
+		b1 = b2
+	}
+	return a1, b1, nil
+}
+
 // switchFaster переводит цели на заметно более быстрые узлы. Под opMu.
 // Чаще раза за цикл фоновых проверок не переключает: решение принимается по задержкам,
 // которые туда и записываются, и за цикл каждый запасной успевает обновить свою.
+// Кандидат из faster() отобран по хранимым задержкам; перед переключением обоих
+// перемеряем в одну очередь и переключаемся, только если свежая разница всё ещё
+// не меньше gain. Не вышел замер — пропускаем цикл: по старым числам решать
+// уже нельзя, следующая попытка через цикл.
 func (w *Watcher) switchFaster() {
 	cycle := time.Duration(w.c.Watch.BackgroundCycleMin) * time.Minute
 	if cycle <= 0 || w.c.Watch.SwitchFasterMs <= 0 {
@@ -186,17 +215,37 @@ func (w *Watcher) switchFaster() {
 	for _, t := range w.allTargets() {
 		w.mu.Lock()
 		var cand *NodeState
-		from, fromMs, toMs := "", 0, 0
 		if time.Since(t.lastSelect) >= cycle {
-			if cand = w.faster(t); cand != nil {
-				cur := w.find(t.Active)
-				from, fromMs, toMs = cur.Name, cur.LatencyMs, cand.LatencyMs
-			}
+			cand = w.faster(t)
 		}
 		w.mu.Unlock()
 		if cand == nil {
 			continue
 		}
+		cur := w.node(t.Active)
+		if cur == nil {
+			continue
+		}
+		// Свежий замер обоих перед решением: хранимые задержки сняты в разные
+		// моменты и общий шум (процессор роутера, загрузка канала) превращался
+		// в ложную разницу. Записываем новые значения — страница покажет
+		// честные цифры, по которым решалось.
+		curMs, candMs, err := w.latencyPair(cur, cand)
+		if err != nil {
+			lg.Printf("узел быстрее%s: замер перед переключением не вышел (%v) — откладываю до следующего цикла", t.where(), shortErr(err))
+			continue
+		}
+		now := time.Now()
+		w.mu.Lock()
+		cur.LatencyMs, cur.CheckedAt = curMs, now
+		cand.LatencyMs, cand.CheckedAt = candMs, now
+		w.mu.Unlock()
+		if curMs-candMs < w.c.Watch.SwitchFasterMs {
+			lg.Printf("узел быстрее%s: свежий замер не подтвердил (%d мс против %d у «%s») — остаюсь на «%s»",
+				t.where(), candMs, curMs, cur.Name, cur.Name)
+			continue
+		}
+		from, fromMs, toMs := cur.Name, curMs, candMs
 		// Задержка у кандидата могла устареть на цикл — проверяем его дважды прямо сейчас.
 		allOK := true
 		for range 2 {
@@ -217,7 +266,7 @@ func (w *Watcher) switchFaster() {
 			lg.Printf("не удалось переключить балансировщик %s: %v", t.Balancer, err)
 			continue
 		}
-		now := time.Now()
+		now = time.Now()
 		w.mu.Lock()
 		t.Active, t.Pinned, t.Fails, t.LastOK, t.Down, t.lastSelect = cand.Tag, false, 0, now, false, now
 		cand.BadUntil, cand.LastErr = time.Time{}, ""
