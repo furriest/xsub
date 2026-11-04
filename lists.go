@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -307,12 +308,104 @@ func validateGroups(gs []Group) error {
 	return nil
 }
 
-// ---------- всё вместе ----------
+// ---------- состав списка (экран «что распозналось») ----------
+
+type ListBreakdown struct {
+	Counts  map[string]int      `json:"counts"`            // тип правила -> сколько
+	Entries map[string][]string `json:"entries"`           // тип -> значения
+	Errors  []string            `json:"errors,omitempty"`  // ошибки разбора (локальный файл)
+	Skipped int                 `json:"skipped,omitempty"` // строки без эквивалента (внешние списки)
+}
+
+type RemoteContent struct {
+	URL    string `json:"url"`
+	Cached bool   `json:"cached"` // false — ещё не скачан, состав неизвестен
+	ListBreakdown
+}
+
+type ListContent struct {
+	File    string          `json:"file"`
+	Local   *ListBreakdown  `json:"local"` // null — файла нет
+	Remotes []RemoteContent `json:"remotes"`
+	Total   ListBreakdown   `json:"total"`
+}
+
+// listContent разбирает список для экрана состава теми же парсерами, что и при
+// применении: локальный файл (parseListFull) и каждый внешний список из кэша
+// (parseRemote). Проверка сайта и этот экран поэтому всегда согласованы
+// с реальной маршрутизацией.
+func listContent(c *Config, file string) ListContent {
+	lc := ListContent{File: file}
+	total := ListBreakdown{Counts: map[string]int{}, Entries: map[string][]string{}}
+	acc := func(b ListBreakdown) {
+		for k, n := range b.Counts {
+			total.Counts[k] += n
+			total.Entries[k] = append(total.Entries[k], b.Entries[k]...)
+		}
+		total.Errors = append(total.Errors, b.Errors...)
+		total.Skipped += b.Skipped
+	}
+	if b, err := os.ReadFile(c.path(file)); err == nil {
+		r, remotes, errs := parseListFull(string(b))
+		lb := breakdownRules(r)
+		lb.Errors = errs
+		lc.Local = &lb
+		acc(lb)
+		for _, u := range remotes {
+			rc := RemoteContent{URL: u}
+			if cb, cerr := os.ReadFile(remotePath(c, u)); cerr == nil {
+				rc.Cached = true
+				rr, skipped := parseRemote(string(cb))
+				rb := breakdownRules(rr)
+				rb.Skipped = skipped
+				rc.ListBreakdown = rb
+				acc(rb)
+			}
+			lc.Remotes = append(lc.Remotes, rc)
+		}
+	}
+	for _, e := range total.Entries {
+		sort.Strings(e)
+	}
+	lc.Total = total
+	return lc
+}
+
+// breakdownRules раскладывает разобранные правила по типам для показа.
+func breakdownRules(r Rules) ListBreakdown {
+	b := ListBreakdown{Counts: map[string]int{}, Entries: map[string][]string{}}
+	add := func(kind, v string) {
+		b.Counts[kind]++
+		b.Entries[kind] = append(b.Entries[kind], v)
+	}
+	for _, d := range r.Domains {
+		k, v, _ := strings.Cut(d, ":")
+		switch k {
+		case "full", "domain", "keyword", "regexp", "geosite":
+		default:
+			k = "ext" // ext:файл:категория — Cut отделяет только первый префикс
+		}
+		add(k, v)
+	}
+	for _, p := range r.IPs {
+		k, v, _ := strings.Cut(p, ":")
+		if k != "geoip" {
+			k, v = "ip", p
+		}
+		add(k, v)
+	}
+	for _, e := range b.Entries {
+		sort.Strings(e)
+	}
+	return b
+}
 
 type GroupRules struct {
 	Group
 	Rules
 }
+
+// ---------- всё вместе ----------
 
 // RouteSet — всё, из чего собирается 05_routing.json.
 type RouteSet struct {

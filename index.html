@@ -32,6 +32,7 @@ label.check{flex-direction:row;align-items:center;gap:8px;flex:1 1 100%}
 .ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
 .big{font-size:17px;font-weight:600}
 .err{white-space:pre-wrap;color:var(--bad)}
+.lc{word-break:break-all;font-size:12px;line-height:1.6}.lc>div{margin-bottom:4px}
 .note{white-space:pre-wrap;color:var(--warn)}
 table{width:100%;border-collapse:collapse}
 td,th{padding:6px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
@@ -191,8 +192,10 @@ code{font:12px ui-monospace,Menlo,Consolas,monospace}
     <div id="groupsEditor" class="hide"></div>
     <div class="row" style="margin-top:8px" id="listBar">
       <button class="primary" id="lsave" data-i18n="saveApply" onclick="saveList()"></button>
+      <button data-i18n="listContent" onclick="showListContent()"></button>
       <span id="lmsg" class="muted"></span>
     </div>
+    <div id="lcontent" class="hide" style="margin-top:8px"></div>
     <div class="row hide" style="margin-top:8px" id="groupsBar">
       <button data-i18n="addGroup" onclick="addGroup()"></button>
       <button class="primary" id="gsave" data-i18n="saveGroups" onclick="saveGroups()"></button>
@@ -324,6 +327,8 @@ ru: {
   lastTest:'проверен', agoMin:'мин назад', agoH:'ч назад', justNow:'только что', thNode:'Узел', thLat:'Задержка', thRel:'Надёжность', thState:'Состояние', sortHint:'щелчок — сортировка, ещё раз — наоборот, третий — как в конфиге', active:'Активен', badUntil:'исключён до', select:'Выбрать', for:'для',
   nodesHint:'Надёжность — доля удачных проверок загрузкой: активный узел проверяется при каждой проверке сторожа, каждый запасной — в фоне раз в N минут (задаётся в настройках). Задержка обновляется при каждой такой проверке. При сбое сначала выбираются надёжные узлы, потом быстрые.',
   listVPN:'Через VPN', listDirect:'Напрямую', saveApply:'Сохранить и применить', applying:'Проверяю и применяю…', applied:'Применено.', unsaved:'Есть несохранённые изменения. Переключиться без сохранения?',
+  listContent:'Состав', lcTotal:'Всего правил', lcLocal:'Локальный файл', lcRemote:'Внешний список', lcNotCached:'ещё не скачан — состав будет виден после первого применения списка', lcSkipped:'строк пропущено (нет эквивалента в Xray)', lcErrors:'ошибки разбора', lcEmpty:'пусто',
+  kDomain:'домены с поддоменами', kFull:'точные домены', kKeyword:'по ключевому слову', kRegexp:'по регулярному выражению', kGeosite:'категории geosite', kExt:'категории из geo-файлов', kIp:'IP и подсети', kGeoip:'GeoIP',
   defRoute:'По умолчанию:', defDirect:'Напрямую', defVPN:'Через VPN',
   groups:'Группы',
   addGroup:'+ Добавить группу', saveGroups:'Сохранить группы', phGName:'Название группы', phGFilter:'Фильтр узлов, например (?i)нидерланд|NL', matched:'подходящих узлов', noGroups:'Групп нет.',
@@ -359,6 +364,8 @@ en: {
   lastTest:'checked', agoMin:'min ago', agoH:'h ago', justNow:'just now', thNode:'Node', thLat:'Latency', thRel:'Reliability', thState:'State', sortHint:'click to sort, again to reverse, third time back to config order', active:'Active', badUntil:'excluded until', select:'Select', for:'for',
   nodesHint:'Reliability is the share of successful download checks: the active node is checked on every watchdog run, each spare node in the background once per N minutes (see Settings). Latency is refreshed on every such check. On failure reliable nodes are tried first, then fast ones.',
   listVPN:'Via VPN', listDirect:'Direct', saveApply:'Save and apply', applying:'Checking and applying…', applied:'Applied.', unsaved:'You have unsaved changes. Switch anyway?',
+  listContent:'Contents', lcTotal:'Total rules', lcLocal:'Local file', lcRemote:'Remote list', lcNotCached:'not downloaded yet — contents will appear after the list is first applied', lcSkipped:'lines skipped (no Xray equivalent)', lcErrors:'parse errors', lcEmpty:'empty',
+  kDomain:'domains with subdomains', kFull:'exact domains', kKeyword:'by keyword', kRegexp:'by regular expression', kGeosite:'geosite categories', kExt:'categories from geo files', kIp:'IPs and subnets', kGeoip:'GeoIP',
   defRoute:'Default:', defDirect:'Direct', defVPN:'Via VPN',
   groups:'Groups',
   addGroup:'+ Add group', saveGroups:'Save groups', phGName:'Group name', phGFilter:'Node filter, e.g. (?i)netherlands|NL', matched:'matching nodes', noGroups:'No groups.',
@@ -755,6 +762,7 @@ async function fetchList(id) { listText[id] = await (await fetch('/api/list?name
 async function openList(id) {
   if (dirty && !confirm(t('unsaved'))) return;
   curList = id; dirty = false;
+  $('lcontent').classList.add('hide'); // состав относится к конкретному списку
   if (id !== 'groups' && listText[id] === undefined) await fetchList(id);
   showList(); renderListTabs();
 }
@@ -775,6 +783,52 @@ async function saveList() {
     listText[curList] = $('list').value; dirty = false; setMsg('lmsg', 'ok', t('applied'));
   } catch (e) { setMsg('lmsg', 'bad', e.message); }
   $('lsave').disabled = false; load();
+}
+
+// ---------- состав списка: что распозналось ----------
+const LC_KINDS = ['domain', 'full', 'keyword', 'regexp', 'geosite', 'ext', 'ip', 'geoip'];
+function kindLabel(k) { return t('k' + k.charAt(0).toUpperCase() + k.slice(1)); }
+
+function renderContentBreakdown(b) {
+  if (!b) return '';
+  let h = '';
+  const kinds = LC_KINDS.filter(k => b.counts && b.counts[k]);
+  if (kinds.length) {
+    h += '<div class="lc">';
+    for (const k of kinds) {
+      const list = b.entries[k] || [];
+      const cap = 120;
+      const more = list.length > cap ? ' … +' + (list.length - cap) : '';
+      h += '<div><span class="muted">' + esc(kindLabel(k)) + ' (' + list.length + '):</span> ' +
+           esc(list.slice(0, cap).join(', ')) + esc(more) + '</div>';
+    }
+    h += '</div>';
+  }
+  if (b.skipped) h += '<div class="muted">' + b.skipped + ' — ' + t('lcSkipped') + '</div>';
+  if (b.errors && b.errors.length) h += '<div class="err">' + t('lcErrors') + ':\n' + esc(b.errors.join('\n')) + '</div>';
+  return h;
+}
+
+async function showListContent() {
+  const box = $('lcontent');
+  if (!box.classList.contains('hide')) { box.classList.add('hide'); return; }
+  box.classList.remove('hide');
+  box.innerHTML = '<span class="muted">…</span>';
+  try {
+    const d = await (await fetch('/api/list-content?name=' + encodeURIComponent(curList))).json();
+    const total = Object.values(d.total.counts || {}).reduce((a, b) => a + b, 0);
+    let h = '<div style="margin-bottom:6px"><b>' + (total ? t('lcTotal') + ': ' + total : t('lcEmpty')) + '</b></div>';
+    if (d.local) {
+      h += '<div class="card"><div class="muted">' + esc(t('lcLocal')) + '</div>' +
+           (renderContentBreakdown(d.local) || '<span class="muted">' + t('lcEmpty') + '</span>') + '</div>';
+    }
+    for (const r of d.remotes || []) {
+      h += '<div class="card"><div class="muted">' + esc(t('lcRemote')) + ': ' + esc(r.url) + '</div>' +
+           (r.cached ? (renderContentBreakdown(r) || '<span class="muted">' + t('lcEmpty') + '</span>')
+                     : '<div class="muted">' + t('lcNotCached') + '</div>') + '</div>';
+    }
+    box.innerHTML = h;
+  } catch (e) { box.innerHTML = '<span class="bad">' + esc(e.message) + '</span>'; }
 }
 
 // ---------- группы ----------

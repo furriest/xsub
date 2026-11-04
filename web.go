@@ -48,6 +48,15 @@ func (a *App) handler() http.Handler {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Write(b)
 	})
+	// состав списка: что распозналось в локальном файле и во внешних списках
+	get("/api/list-content", func(w http.ResponseWriter, r *http.Request) {
+		file, err := a.listFile(r.URL.Query().Get("name"))
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		writeJSON(w, listContent(a.c, file))
+	})
 	post("/api/list", func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 		result(w, a.saveList(r.Context(), r.URL.Query().Get("name"), string(b)))
