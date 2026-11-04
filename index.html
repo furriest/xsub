@@ -324,7 +324,7 @@ ru: {
   fbImportTitle:'Перенести из конфигов Xray', fbImportHint:'Outbound скопируется в xsub; исходный файл XKeen не меняется — после переноса его можно удалить оттуда.', fbImported:'уже перенесён', fbLegacy:'сейчас запасной', fbImportBtn:'Перенести',
   fallback:'резерв', up:'Выше', downBtn:'Ниже', fbOnline:'работает', fbOffline:'не отвечает',
   del:'Удалить', nodesN:'узлов', updated:'обновлена', cached:'сохранённая копия', traffic:'трафик', gb:'ГБ', until:'до', of:'из', notYet:'ещё не обновлялась', noSubs:'Подписок пока нет — добавьте ссылку.',
-  lastTest:'проверен', agoMin:'мин назад', agoH:'ч назад', justNow:'только что', thNode:'Узел', thLat:'Задержка', thRel:'Надёжность', thState:'Состояние', sortHint:'щелчок — сортировка, ещё раз — наоборот, третий — как в конфиге', active:'Активен', badUntil:'исключён до', select:'Выбрать', for:'для',
+  lastTest:'проверен', agoMin:'мин назад', agoH:'ч назад', justNow:'только что', thNode:'Узел', thLat:'Задержка', thRel:'Надёжность', thState:'Состояние', sortHint:'щелчок — сортировка, ещё раз — наоборот, третий — как в конфиге', badUntil:'исключён до', select:'Выбрать', pickFor:'Выбрать для…',
   nodesHint:'Надёжность — доля удачных проверок загрузкой: активный узел проверяется при каждой проверке сторожа, каждый запасной — в фоне раз в N минут (задаётся в настройках). Задержка обновляется при каждой такой проверке. При сбое сначала выбираются надёжные узлы, потом быстрые.',
   listVPN:'Через VPN', listDirect:'Напрямую', saveApply:'Сохранить и применить', applying:'Проверяю и применяю…', applied:'Применено.', unsaved:'Есть несохранённые изменения. Переключиться без сохранения?',
   listContent:'Состав', lcTotal:'Всего правил', lcLocal:'Локальный файл', lcRemote:'Внешний список', lcNotCached:'ещё не скачан — состав будет виден после первого применения списка', lcSkipped:'строк пропущено (нет эквивалента в Xray)', lcErrors:'ошибки разбора', lcEmpty:'пусто',
@@ -361,7 +361,7 @@ en: {
   fbImportTitle:'Move from Xray configs', fbImportHint:'The outbound is copied into xsub; the XKeen file is not changed — you can delete it there afterwards.', fbImported:'already moved', fbLegacy:'current fallback', fbImportBtn:'Move',
   fallback:'fallback', up:'Up', downBtn:'Down', fbOnline:'working', fbOffline:'not responding',
   del:'Delete', nodesN:'nodes', updated:'updated', cached:'saved copy', traffic:'traffic', gb:'GB', until:'until', of:'of', notYet:'not updated yet', noSubs:'No subscriptions yet — add a link.',
-  lastTest:'checked', agoMin:'min ago', agoH:'h ago', justNow:'just now', thNode:'Node', thLat:'Latency', thRel:'Reliability', thState:'State', sortHint:'click to sort, again to reverse, third time back to config order', active:'Active', badUntil:'excluded until', select:'Select', for:'for',
+  lastTest:'checked', agoMin:'min ago', agoH:'h ago', justNow:'just now', thNode:'Node', thLat:'Latency', thRel:'Reliability', thState:'State', sortHint:'click to sort, again to reverse, third time back to config order', badUntil:'excluded until', select:'Select', pickFor:'Select for…',
   nodesHint:'Reliability is the share of successful download checks: the active node is checked on every watchdog run, each spare node in the background once per N minutes (see Settings). Latency is refreshed on every such check. On failure reliable nodes are tried first, then fast ones.',
   listVPN:'Via VPN', listDirect:'Direct', saveApply:'Save and apply', applying:'Checking and applying…', applied:'Applied.', unsaved:'You have unsaved changes. Switch anyway?',
   listContent:'Contents', lcTotal:'Total rules', lcLocal:'Local file', lcRemote:'Remote list', lcNotCached:'not downloaded yet — contents will appear after the list is first applied', lcSkipped:'lines skipped (no Xray equivalent)', lcErrors:'parse errors', lcEmpty:'empty',
@@ -563,10 +563,15 @@ function render() {
     if (bad) state += '<span class="bad">' + t('badUntil') + ' ' + new Date(n.bad_until).toLocaleTimeString(loc()) + '</span>';
     if (n.last_err) state += '<div class="muted">' + esc(n.last_err) + '</div>';
     const choices = avail.filter(tg => tg.active !== n.tag);
-    let btn = activeIn.map(tg => '<button class="cur" disabled>' + t('active') + (ts.length > 1 ? ' — ' + esc(tgName(tg)) : '') + '</button>').join('<br>');
+    // Зелёная кнопка — индикатор: только имя цели, без слова «Активен».
+    // Резервный узел можно закрепить за любую цель (резервы общие) — отсюда
+    // выбор из нескольких; обычный узел закрепляется за свои цели.
+    let btn = activeIn.map(tg => '<button class="cur" disabled>' + esc(tgName(tg)) + '</button>').join('<br>');
     if (btn && choices.length) btn += '<br>';
     if (choices.length === 1) btn += '<button onclick="pick(\'' + esc(choices[0].id) + '\',\'' + esc(n.tag) + '\')">' + t('select') + '</button>';
-    else if (choices.length > 1) btn += '<select id="sel_' + esc(n.tag) + '">' + choices.map(tg => '<option value="' + esc(tg.id) + '">' + esc(tgName(tg)) + '</option>').join('') + '</select> <button onclick="pick($(\'sel_' + esc(n.tag) + '\').value,\'' + esc(n.tag) + '\')">' + t('select') + '</button>';
+    else if (choices.length > 1) btn += '<select onchange="if(this.value)pick(this.value,\'' + esc(n.tag) + '\')">' +
+      '<option value="" disabled selected>' + t('pickFor') + '</option>' +
+      choices.map(tg => '<option value="' + esc(tg.id) + '">' + esc(tgName(tg)) + '</option>').join('') + '</select>';
     return '<tr class="' + (activeIn.length ? 'active' : '') + '"><td>' + esc(n.name) + (n.fallback ? '<span class="badge warn">' + t('fallback') + '</span>' : '') + '<div class="muted addr">' + esc(n.proto) + ' · ' + esc(n.address) + '</div></td><td class="lat">' + lat +
       '</td><td class="rel">' + rel + '</td><td class="state">' + state + '</td><td class="btn">' + btn + '</td></tr>';
   }).join('') || '<tr><td colspan="5" class="muted">' + t('noNodes') + '</td></tr>';
