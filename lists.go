@@ -225,6 +225,9 @@ type Group struct {
 	Name   string `json:"name"`
 	Filter string `json:"filter"` // регулярное выражение по имени узла (не нужен при direct)
 	Direct bool   `json:"direct,omitempty"`
+	// Fallback — тег резервного узла, который берёт балансировщик группы, когда
+	// не жив ни один её узел ("" — общий резерв, первый в списке резервов).
+	Fallback string `json:"fallback,omitempty"`
 }
 
 const (

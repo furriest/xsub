@@ -276,6 +276,18 @@ func generate(c *Config, env Env, nodes, fbs []Node, rs RouteSet) (routing, xsub
 
 	rt := map[string]any{"domainStrategy": "AsIs", "rules": rules}
 	if len(nodes) > 0 {
+		// Резерв на группу: общий по умолчанию, выбранный — если его тег
+		// ещё есть в списке резервов (удалённый игнорируем, не ломаем конфиг).
+		fbTags := map[string]bool{}
+		for _, fb := range fbs {
+			fbTags[fb.Tag] = true
+		}
+		groupFB := map[string]string{}
+		for _, g := range rs.Groups {
+			if g.Fallback != "" && fbTags[g.Fallback] {
+				groupFB[g.ID] = g.Fallback
+			}
+		}
 		var bals []any
 		for _, d := range defs {
 			if d.Empty && d.ID != "" {
@@ -286,8 +298,12 @@ func generate(c *Config, env Env, nodes, fbs []Node, rs RouteSet) (routing, xsub
 				sel = d.Tags
 			}
 			bal := map[string]any{"tag": d.Balancer, "selector": sel, "strategy": map[string]any{"type": "leastPing"}}
-			if fallback != "" {
-				bal["fallbackTag"] = fallback
+			fbTag := fallback
+			if t, ok := groupFB[d.ID]; ok {
+				fbTag = t
+			}
+			if fbTag != "" {
+				bal["fallbackTag"] = fbTag
 			}
 			bals = append(bals, bal)
 		}

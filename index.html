@@ -27,6 +27,7 @@ button.cur,button.cur:hover,button.cur:disabled{border-color:var(--ok);color:var
 input,textarea{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font:inherit;min-width:0}
 textarea{width:100%;min-height:300px;padding:10px;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace}
 #groupsEditor textarea{min-height:90px;margin-top:6px}
+#groupsEditor button.on{border-color:var(--acc);color:var(--acc)}
 label{display:flex;flex-direction:column;gap:4px;flex:1 1 220px}
 label.check{flex-direction:row;align-items:center;gap:8px;flex:1 1 100%}
 .muted{color:var(--muted)}
@@ -190,7 +191,7 @@ code{font:12px ui-monospace,Menlo,Consolas,monospace}
   </section>
 </div>
 
-<!-- Списки и группы -->
+<!-- Маршрутизация: списки и группы -->
 <div data-tab="lists" class="hide">
   <section>
     <div class="subtabs" id="listTabs"></div>
@@ -317,7 +318,7 @@ code{font:12px ui-monospace,Menlo,Consolas,monospace}
 <script>
 const I18N = {
 ru: {
-  tabOverview:'Обзор', tabSubs:'Подписки', tabNodes:'Узлы', tabLists:'Списки и группы', tabRoute:'Проверка сайта', tabSettings:'Настройки', tabLog:'Журнал',
+  tabOverview:'Обзор', tabSubs:'Подписки', tabNodes:'Узлы', tabLists:'Маршрутизация', tabRoute:'Проверка сайта', tabSettings:'Настройки', tabLog:'Журнал',
   btnAuto:'Автовыбор', btnCheck:'Проверить узлы', btnSubs:'Обновить подписки', btnGeo:'Обновить geo и списки',
   msgAuto:'Ищу рабочие узлы…', msgCheck:'Проверяю задержку…', msgSubs:'Обновляю подписки…', msgSubsLong:'Обновление ещё идёт — результат появится в статусе подписок.', msgGeo:'Обновляю geo-файлы и внешние списки…', done:'Готово.',
   mainTarget:'Основной трафик VPN', via:'идёт через', noNode:'узел не выбран — автовыбор Xray', noNodes:'нет узлов — добавьте подписку',
@@ -339,7 +340,7 @@ ru: {
   kDomain:'домены с поддоменами', kFull:'точные домены', kKeyword:'по ключевому слову', kRegexp:'по регулярному выражению', kGeosite:'категории geosite', kExt:'категории из geo-файлов', kIp:'IP и подсети', kGeoip:'GeoIP',
   defRoute:'По умолчанию:', defDirect:'Напрямую', defVPN:'Через VPN',
   groups:'Группы',
-  addGroup:'+ Добавить группу', saveGroups:'Сохранить группы', phGName:'Название группы', phGFilter:'Фильтр узлов, например (?i)нидерланд|NL', phGList:'Домены группы — по строке, формат как в vpn.txt', gDirect:'Напрямую, без узлов', matched:'подходящих узлов', noGroups:'Групп нет.',
+  addGroup:'+ Добавить группу', saveGroups:'Сохранить группы', phGName:'Название группы', phGFilter:'Фильтр узлов, например (?i)нидерланд|NL', phGList:'Домены группы — по строке, формат как в vpn.txt', gDirectTitle:'группа идёт напрямую, без узлов', fbShared:'резерв: общий', matched:'подходящих узлов', noGroups:'Групп нет.',
   routeTitle:'Куда пойдёт этот сайт?', routePh:'домен, ссылка или IP-адрес', routeBtn:'Проверить', rList:'Список', rRule:'Правило', rVia:'Сейчас через',
   setMain:'Подписки и узлы', sInterval:'Обновлять подписки', sUA:'User-Agent по умолчанию', sMax:'Узлов из подписки', none:'— нет —',
   setWatch:'Сторож', sWEnabled:'Проверять узлы', sWInterval:'Интервал проверки', sWFails:'Неудач до переключения', sWFaster:'Переходить на быстрый узел', hFaster:'если запасной надёжен не хуже текущего и быстрее его на столько миллисекунд; 0 — не переходить. Нужна фоновая проверка — задержки берутся из неё', sWBg:'Проверка запасных узлов', hBg:'каждый узел раз в N минут; 0 — выключено', sWSize:'Размер проверки', hSize:'блокировка срабатывает на 16–20 КБ — берите больше', sWRestart:'Перезапускать XKeen', hRestart:'если Xray упал; не трогает, если запущен mihomo', sWUrls:'Сайты для проверки', hUrls:'дополнительно должны открываться через узел; по одному адресу в строке',
@@ -354,7 +355,7 @@ ru: {
   bannerNew:'Доступна новая версия xsub', bannerGo:'Обновить в настройках'
 },
 en: {
-  tabOverview:'Overview', tabSubs:'Subscriptions', tabNodes:'Nodes', tabLists:'Lists & groups', tabRoute:'Site check', tabSettings:'Settings', tabLog:'Log',
+  tabOverview:'Overview', tabSubs:'Subscriptions', tabNodes:'Nodes', tabLists:'Routing', tabRoute:'Site check', tabSettings:'Settings', tabLog:'Log',
   btnAuto:'Auto-select', btnCheck:'Check nodes', btnSubs:'Update subscriptions', btnGeo:'Update geo & lists',
   msgAuto:'Looking for working nodes…', msgCheck:'Measuring latency…', msgSubs:'Updating subscriptions…', msgSubsLong:'Update is still running — the result will appear in the subscriptions status.', msgGeo:'Updating geo files and remote lists…', done:'Done.',
   mainTarget:'Main VPN traffic', via:'goes via', noNode:'no node selected — Xray auto-select', noNodes:'no nodes — add a subscription',
@@ -376,7 +377,7 @@ en: {
   kDomain:'domains with subdomains', kFull:'exact domains', kKeyword:'by keyword', kRegexp:'by regular expression', kGeosite:'geosite categories', kExt:'categories from geo files', kIp:'IPs and subnets', kGeoip:'GeoIP',
   defRoute:'Default:', defDirect:'Direct', defVPN:'Via VPN',
   groups:'Groups',
-  addGroup:'+ Add group', saveGroups:'Save groups', phGName:'Group name', phGFilter:'Node filter, e.g. (?i)netherlands|NL', phGList:'Group domains — one per line, same format as vpn.txt', gDirect:'Direct, no nodes', matched:'matching nodes', noGroups:'No groups.',
+  addGroup:'+ Add group', saveGroups:'Save groups', phGName:'Group name', phGFilter:'Node filter, e.g. (?i)netherlands|NL', phGList:'Group domains — one per line, same format as vpn.txt', gDirectTitle:'group goes direct, no nodes', fbShared:'fallback: shared', matched:'matching nodes', noGroups:'No groups.',
   routeTitle:'Where will this site go?', routePh:'domain, link or IP address', routeBtn:'Check', rList:'List', rRule:'Rule', rVia:'Currently via',
   setMain:'Subscriptions and nodes', sInterval:'Update subscriptions', sUA:'Default User-Agent', sMax:'Nodes per subscription', none:'— none —',
   setWatch:'Watchdog', sWEnabled:'Check nodes', sWInterval:'Check interval', sWFails:'Failures before switch', sWFaster:'Switch to a faster node', hFaster:'when a spare is at least as reliable as the current one and this many milliseconds faster; 0 — off. Needs background checks: latencies come from them', sWBg:'Spare node checks', hBg:'each node once per N minutes; 0 — off', sWSize:'Check size', hSize:'a common block triggers at 16–20 KB — use more', sWRestart:'Restart XKeen', hRestart:'if Xray crashed; skipped when mihomo runs', sWUrls:'Sites to check', hUrls:'must also open through the node; one address per line',
@@ -897,11 +898,14 @@ function matchCount(filter) {
 
 function renderGroups() {
   $('groupsEditor').innerHTML = groups.map((g, i) => {
+    const fbOpts = ((FB && FB.fallbacks) || []).filter(f => f.tag && !f.err)
+      .map(f => '<option value="' + esc(f.tag) + '"' + (g.fallback === f.tag ? ' selected' : '') + '>' + esc(f.name || f.tag) + '</option>').join('');
     const head = '<div class="row">' +
       '<button title="↑" onclick="moveGroup(' + i + ',-1)"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
       '<button title="↓" onclick="moveGroup(' + i + ',1)"' + (i === groups.length - 1 ? ' disabled' : '') + '>↓</button>' +
       '<input class="n" placeholder="' + esc(t('phGName')) + '" value="' + esc(g.name) + '" oninput="groups[' + i + '].name=this.value;groupsDirty=true">' +
-      '<label class="check"><input type="checkbox" ' + (g.direct ? 'checked' : '') + ' onchange="groups[' + i + '].direct=this.checked;groupsDirty=true;renderGroups()"> ' + esc(t('gDirect')) + '</label>' +
+      '<button class="' + (g.direct ? 'on' : '') + '" title="' + esc(t('gDirectTitle')) + '" onclick="groups[' + i + '].direct=!groups[' + i + '].direct;groupsDirty=true;renderGroups()">' + esc(t('defDirect')) + '</button>' +
+      (g.direct ? '' : '<select onchange="groups[' + i + '].fallback=this.value;groupsDirty=true"><option value="">' + esc(t('fbShared')) + '</option>' + fbOpts + '</select>') +
       '<button onclick="groups.splice(' + i + ',1);groupsDirty=true;renderGroups()">' + t('del') + '</button></div>';
     const filter = g.direct ? '' :
       '<div class="row" style="margin-top:6px"><input placeholder="' + esc(t('phGFilter')) + '" value="' + esc(g.filter) + '" oninput="groups[' + i + '].filter=this.value;groupsDirty=true">' +

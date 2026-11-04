@@ -562,6 +562,27 @@ func (a *App) saveGroups(gs []Group, lists map[string]string, apply bool) error 
 	if err := validateGroups(gs); err != nil {
 		return err
 	}
+	// Выбранный группой резерв должен существовать: иначе опечатка в теге
+	// прячется до отказа всех узлов группы.
+	needFB := false
+	for _, g := range gs {
+		if g.Fallback != "" {
+			needFB = true
+			break
+		}
+	}
+	if needFB {
+		fbNow, _ := fallbackNodes(a.c, nil) // теги резервов от sockopt не зависят
+		tags := map[string]bool{}
+		for _, n := range fbNow {
+			tags[n.Tag] = true
+		}
+		for _, g := range gs {
+			if g.Fallback != "" && !tags[g.Fallback] {
+				return fmt.Errorf("группа «%s»: нет резервного узла %s", g.Name, g.Fallback)
+			}
+		}
+	}
 	// Содержимое списков проверяем до любых записей: сохранение не должно
 	// оставить конфиг с битым списком.
 	keep := map[string]bool{}

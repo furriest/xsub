@@ -83,6 +83,41 @@ func TestGenerateGroupsOrder(t *testing.T) {
 	}
 }
 
+// Резерв на группу: балансировщик группы получает выбранный fallbackTag,
+// остальные — общий; ссылка на удалённый резерв молча игнорируется.
+func TestGenerateGroupFallback(t *testing.T) {
+	c := defaultConfig()
+	c.Xray.ConfDir = t.TempDir()
+	writeConf(t, c.Xray.ConfDir, map[string]string{
+		"03_inbounds.json": `{"inbounds":[{"tag":"redirect","port":1,"protocol":"dokodemo-door"}]}`,
+	})
+	nodes, _ := parseSubscription(decodeSubscription([]byte(sampleSub())), parseOpts{})
+	fbNode1 := mkNode("fb-aaaaaaaa", "Резерв A")
+	fbNode1.Outbound = map[string]any{"tag": "fb-aaaaaaaa", "protocol": "freedom"}
+	fbNode2 := mkNode("fb-bbbbbbbb", "Резерв B")
+	fbNode2.Outbound = map[string]any{"tag": "fb-bbbbbbbb", "protocol": "freedom"}
+	rs := RouteSet{Groups: []GroupRules{
+		{Group: Group{ID: "g1", Name: "G1", Filter: "(?i)netherlands", Fallback: "fb-bbbbbbbb"}, Rules: Rules{Domains: []string{"domain:g1.example"}}},
+		{Group: Group{ID: "g2", Name: "G2", Filter: "(?i)netherlands", Fallback: "fb-удалён"}, Rules: Rules{Domains: []string{"domain:g2.example"}}},
+	}}
+	env, _ := scanEnv(c)
+	r, _, err := generate(c, env, nodes, []Node{fbNode1, fbNode2}, rs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(r)
+	i := strings.Index(s, `"balancers"`)
+	j := strings.Index(s[i:], `"rules"`)
+	bals := s[i : i+j]
+	// Резерв B — только у g1; общий резерв A — у основной цели и у g2.
+	if strings.Count(bals, "fb-bbbbbbbb") != 1 {
+		t.Errorf("выбранный резерв должен быть только у g1:\n%s", bals)
+	}
+	if strings.Count(bals, "fb-aaaaaaaa") != 2 {
+		t.Errorf("общий резерв должен быть у основной цели и у g2:\n%s", bals)
+	}
+}
+
 func TestCheckTargetDirectGroup(t *testing.T) {
 	a := checkTestApp(t, map[string]string{
 		"vpn.txt":      "ai-direct.example\n",
@@ -134,6 +169,23 @@ func TestSaveGroupsWithLists(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(c.path(groupListName("g1"))); string(b) != "one.example\n" {
 		t.Fatalf("файл испорчен неудачным сохранением: %q", b)
+	}
+
+	// Резерв группы должен существовать.
+	if err := os.WriteFile(c.path(fallbacksFile), []byte(`[{"name":"R","link":"vless://`+tUUID+`@res.example.com:443?encryption=none&security=reality&sni=a.example&pbk=4oPjFhCGYBbtVD2aCoA4x3EULVckDGWQYjvci2tp6Jo"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gf := []Group{{ID: "g3", Name: "G3", Filter: "x", Fallback: "fb-нет-такого"}}
+	if err := a.saveGroups(gf, nil, false); err == nil {
+		t.Fatal("несуществующий резерв группы должен отклоняться")
+	}
+	fbNow, _ := fallbackNodes(c, nil)
+	if len(fbNow) != 1 {
+		t.Fatalf("резерв: %+v", fbNow)
+	}
+	gf[0].Fallback = fbNow[0].Tag
+	if err := a.saveGroups(gf, nil, false); err != nil {
+		t.Fatalf("существующий резерв должен приниматься: %v", err)
 	}
 	_ = context.Background
 }
