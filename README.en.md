@@ -15,7 +15,7 @@ XKeen intercepts traffic and runs Xray. xsub manages the contents.
 - **Switch to a faster node:** when a spare node is no less reliable and faster than the current one by `switch_faster_ms` (default 200; 0 — off), the watchdog switches without waiting for a failure. Both nodes are re-measured back-to-back before switching, so shared channel/CPU noise does not fake the gap. At most once per background cycle.
 - **Fallback nodes:** by link or moved from the XKeen configs; also a fallback via a router interface (`nwg0`, `ovpn_br0` — traffic goes through the Keenetic OS tunnel, bypassing Xray). When the whole subscription fails, the watchdog switches to a fallback and tries to switch back every 10 minutes.
 - **Groups:** a list through a subset of nodes (name filter regex). Each group has its own balancer and watchdog.
-- **"Direct" and "Via VPN" lists** on the web page, remote lists by URL (updated daily). Before applying, the config is checked with `xray -test`; on error nothing changes.
+- **"Direct" and "Via VPN" lists** on the web page, remote lists by URL in any popular format (plain, dnsmasq, surge/clash, egern, sing-box; updated daily). Before applying, the config is checked with `xray -test`; on error nothing changes.
 - **"Where will this site go?"** — a domain, link or IP shows the matching rule, list and node (including `.dat` categories).
 - **Self-healing:** replaced `05_routing.json`/`07_xsub.json` are restored; if the core is gone for 3 minutes, XKeen is restarted (mihomo is left alone).
 - **Telegram notifications:** switches, down/recovery, subscription or traffic expiry, self-healing, new versions. When Telegram is blocked, messages go via VPN. Messages are prefixed with the device hostname.
@@ -127,7 +127,14 @@ https://…/list.txt             # remote list
 
 Rule order: "Direct" → groups (page order) → "Via VPN". Traffic outside lists follows the **"Default"** toggle.
 
-Remote lists: one domain, IP or subnet per line (dnsmasq format understood); fetched on save and daily; written to disk only when changed.
+Remote lists are fetched on save and updated daily; written to disk only when changed. The format is detected automatically and parsed in full:
+
+- bare domains and subnets, `=domain`, dnsmasq lines (`server=/domain/…`);
+- classical client rules (surge, shadowrocket, loon, stash, quantumult-x, Clash payload): `DOMAIN`, `DOMAIN-SUFFIX`, `DOMAIN-KEYWORD`, `IP-CIDR`, `GEOIP` and the `HOST-*` variants; the third field (`all`, `no-resolve`) is ignored;
+- typed egern YAML blocks: `domain_set`, `domain_suffix_set`, `domain_keyword_set`, `domain_regex_set`, `ip_cidr_set`;
+- sing-box JSON rule-sets: `domain`, `domain_suffix`, `domain_keyword`, `domain_regex`, `ip_cidr`.
+
+Entries with no equivalent in Xray rules (process_name, ports, ASN) are skipped. Example: `https://raw.githubusercontent.com/VPSDance/ai-proxy-rules/main/rules/surge/all.list`.
 
 Groups: a name and a node filter (name regex, e.g. `(?i)netherlands|NL`). Each group gets its own list; with no matching nodes its traffic goes through the main target.
 

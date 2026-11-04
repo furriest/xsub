@@ -116,18 +116,71 @@ func remotePath(c *Config, u string) string {
 	return c.path(filepath.Join("remote", hex.EncodeToString(h[:])[:12]+".txt"))
 }
 
-// parseRemote разбирает скачанный список: неподходящие строки молча пропускаются
-// (во внешних списках бывают заголовки и форматы для других программ).
+// parseRemote разбирает скачанный список целиком — форматы перечислены в remote.go.
+// Неподходящие строки молча пропускаются: во внешних списках бывают заголовки
+// и записи без эквивалента в правилах Xray.
 func parseRemote(text string) (r Rules, skipped int) {
+	if t := strings.TrimSpace(text); strings.HasPrefix(t, "{") {
+		if r, ok := parseSingBoxRuleset(t); ok {
+			return r, 0
+		}
+	}
+	// coll — текущий YAML-блок со значениями одного типа (remoteColl).
+	coll := ""
 	for _, raw := range strings.Split(text, "\n") {
 		raw = strings.TrimSpace(raw)
+		if raw == "" || strings.HasPrefix(raw, "#") {
+			continue
+		}
+		if key, ok := strings.CutSuffix(raw, ":"); ok && isCollKey(key) {
+			coll = remoteColl[key] // неизвестный ключ завершает блок
+			continue
+		}
+		item := raw
+		if v, ok := strings.CutPrefix(item, "- "); ok {
+			item = strings.TrimSpace(v)
+		}
+		switch coll {
+		case "classical":
+			if kind, v, ok := parseClientRule(item); ok {
+				addRemoteRule(&r, kind, v)
+			} else {
+				skipped++
+			}
+			continue
+		case "full", "domain", "keyword", "regexp":
+			item = unquoteRemote(item)
+			if item == "" {
+				skipped++
+			} else if coll == "regexp" {
+				r.Domains = append(r.Domains, "regexp:"+item) // регистр значим
+			} else {
+				r.Domains = append(r.Domains, coll+":"+strings.ToLower(item))
+			}
+			continue
+		case "ip":
+			if item = unquoteRemote(item); item != "" {
+				if _, _, err := net.ParseCIDR(item); err == nil {
+					r.IPs = append(r.IPs, item)
+				} else {
+					skipped++
+				}
+			} else {
+				skipped++
+			}
+			continue
+		}
 		// формат dnsmasq: server=/example.com/… или ipset=/example.com/…
-		if i := strings.Index(raw, "=/"); i > 0 && !strings.HasPrefix(raw, "=") {
-			if parts := strings.Split(raw[i+2:], "/"); len(parts) > 0 {
-				raw = parts[0]
+		if i := strings.Index(item, "=/"); i > 0 && !strings.HasPrefix(item, "=") {
+			if parts := strings.Split(item[i+2:], "/"); len(parts) > 0 {
+				item = parts[0]
 			}
 		}
-		kind, v, err := parseLine(raw)
+		if kind, v, ok := parseClientRule(item); ok {
+			addRemoteRule(&r, kind, v)
+			continue
+		}
+		kind, v, err := parseLine(item)
 		switch {
 		case err != nil || kind == "remote":
 			skipped++
@@ -138,6 +191,14 @@ func parseRemote(text string) (r Rules, skipped int) {
 		}
 	}
 	return
+}
+
+func addRemoteRule(r *Rules, kind, v string) {
+	if kind == "domain" {
+		r.Domains = append(r.Domains, v)
+	} else if kind == "ip" {
+		r.IPs = append(r.IPs, v)
+	}
 }
 
 // fetchRemote скачивает внешний список в кэш. Пишет на диск только при изменении.
