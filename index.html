@@ -26,6 +26,7 @@ button.cur,button.cur:hover,button.cur:disabled{border-color:var(--ok);color:var
 #updBtn:disabled{cursor:not-allowed}
 input,textarea{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font:inherit;min-width:0}
 textarea{width:100%;min-height:300px;padding:10px;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace}
+#groupsEditor textarea{min-height:90px;margin-top:6px}
 label{display:flex;flex-direction:column;gap:4px;flex:1 1 220px}
 label.check{flex-direction:row;align-items:center;gap:8px;flex:1 1 100%}
 .muted{color:var(--muted)}
@@ -331,7 +332,7 @@ ru: {
   kDomain:'домены с поддоменами', kFull:'точные домены', kKeyword:'по ключевому слову', kRegexp:'по регулярному выражению', kGeosite:'категории geosite', kExt:'категории из geo-файлов', kIp:'IP и подсети', kGeoip:'GeoIP',
   defRoute:'По умолчанию:', defDirect:'Напрямую', defVPN:'Через VPN',
   groups:'Группы',
-  addGroup:'+ Добавить группу', saveGroups:'Сохранить группы', phGName:'Название группы', phGFilter:'Фильтр узлов, например (?i)нидерланд|NL', matched:'подходящих узлов', noGroups:'Групп нет.',
+  addGroup:'+ Добавить группу', saveGroups:'Сохранить группы', phGName:'Название группы', phGFilter:'Фильтр узлов, например (?i)нидерланд|NL', phGList:'Домены группы — по строке, формат как в vpn.txt', gDirect:'Напрямую, без узлов', matched:'подходящих узлов', noGroups:'Групп нет.',
   routeTitle:'Куда пойдёт этот сайт?', routePh:'домен, ссылка или IP-адрес', routeBtn:'Проверить', rList:'Список', rRule:'Правило', rVia:'Сейчас через',
   setMain:'Подписки и узлы', sInterval:'Обновлять подписки', sUA:'User-Agent по умолчанию', sMax:'Узлов из подписки', none:'— нет —',
   setWatch:'Сторож', sWEnabled:'Проверять узлы', sWInterval:'Интервал проверки', sWFails:'Неудач до переключения', sWFaster:'Переходить на быстрый узел', hFaster:'если запасной надёжен не хуже текущего и быстрее его на столько миллисекунд; 0 — не переходить. Нужна фоновая проверка — задержки берутся из неё', sWBg:'Проверка запасных узлов', hBg:'каждый узел раз в N минут; 0 — выключено', sWSize:'Размер проверки', hSize:'блокировка срабатывает на 16–20 КБ — берите больше', sWRestart:'Перезапускать XKeen', hRestart:'если Xray упал; не трогает, если запущен mihomo', sWUrls:'Сайты для проверки', hUrls:'дополнительно должны открываться через узел; по одному адресу в строке',
@@ -368,7 +369,7 @@ en: {
   kDomain:'domains with subdomains', kFull:'exact domains', kKeyword:'by keyword', kRegexp:'by regular expression', kGeosite:'geosite categories', kExt:'categories from geo files', kIp:'IPs and subnets', kGeoip:'GeoIP',
   defRoute:'Default:', defDirect:'Direct', defVPN:'Via VPN',
   groups:'Groups',
-  addGroup:'+ Add group', saveGroups:'Save groups', phGName:'Group name', phGFilter:'Node filter, e.g. (?i)netherlands|NL', matched:'matching nodes', noGroups:'No groups.',
+  addGroup:'+ Add group', saveGroups:'Save groups', phGName:'Group name', phGFilter:'Node filter, e.g. (?i)netherlands|NL', phGList:'Group domains — one per line, same format as vpn.txt', gDirect:'Direct, no nodes', matched:'matching nodes', noGroups:'No groups.',
   routeTitle:'Where will this site go?', routePh:'domain, link or IP address', routeBtn:'Check', rList:'List', rRule:'Rule', rVia:'Currently via',
   setMain:'Subscriptions and nodes', sInterval:'Update subscriptions', sUA:'Default User-Agent', sMax:'Nodes per subscription', none:'— none —',
   setWatch:'Watchdog', sWEnabled:'Check nodes', sWInterval:'Check interval', sWFails:'Failures before switch', sWFaster:'Switch to a faster node', hFaster:'when a spare is at least as reliable as the current one and this many milliseconds faster; 0 — off. Needs background checks: latencies come from them', sWBg:'Spare node checks', hBg:'each node once per N minutes; 0 — off', sWSize:'Check size', hSize:'a common block triggers at 16–20 KB — use more', sWRestart:'Restart XKeen', hRestart:'if Xray crashed; skipped when mihomo runs', sWUrls:'Sites to check', hUrls:'must also open through the node; one address per line',
@@ -583,7 +584,10 @@ function render() {
   $('log').textContent = (s.log || []).slice().reverse().join('\n');
   if (!subsDirty && !$('subs').contains(document.activeElement)) renderSubs();
   if (!$('fbs').contains(document.activeElement)) renderFbs();
-  if (!groupsDirty && !$('groupsEditor').contains(document.activeElement)) { groups = JSON.parse(JSON.stringify(s.groups || [])); if (curList === 'groups') renderGroups(); }
+  if (!groupsDirty && !$('groupsEditor').contains(document.activeElement)) {
+    groups = JSON.parse(JSON.stringify(s.groups || []));
+    if (curList === 'groups') { groupListText = {}; ensureGroupLists(); } // тексты подтянутся в renderGroups
+  }
   renderListTabs();
 }
 
@@ -768,14 +772,13 @@ async function saveRouteDef(v) {
 // Строка вкладок — одновременно схема пути пакета: «Напрямую» → «Группы»
 // (вкладки списков самих групп рядом) → «Через VPN» → «По умолчанию».
 function renderListTabs() {
-  const ids = ['direct', 'groups', 'vpn'].concat(((S && S.groups) || []).map(x => x.id));
+  const ids = ['direct', 'groups', 'vpn']; // группы редактируются внутри своей вкладки
   if (!ids.includes(curList)) { curList = 'vpn'; showList(); }
   const tab = (id, name) => '<button class="' + (id === curList ? 'on' : '') + '" onclick="openList(\'' + esc(id) + '\')">' + esc(name) + '</button>';
   const arrow = '<span class="arr muted">→</span>';
-  const gTabs = ((S && S.groups) || []).map(x => tab(x.id, x.name)).join('');
   $('listTabs').innerHTML =
     tab('direct', t('listDirect')) + arrow +
-    tab('groups', t('groups')) + gTabs + arrow +
+    tab('groups', t('groups')) + arrow +
     tab('vpn', t('listVPN')) + arrow +
     '<span class="deflabel muted">' + esc(t('defRoute')) + '</span>' +
     '<button class="' + (routeDefPending === 'direct' ? 'pending' : routeDef === 'direct' ? 'on' : '') + '" onclick="saveRouteDef(\'direct\')">' + esc(t('defDirect')) + '</button>' +
@@ -788,7 +791,8 @@ async function openList(id) {
   if (dirty && !confirm(t('unsaved'))) return;
   curList = id; dirty = false;
   $('lcontent').classList.add('hide'); // состав относится к конкретному списку
-  if (id !== 'groups' && listText[id] === undefined) await fetchList(id);
+  if (id === 'groups') { await ensureGroupLists(); }
+  else if (listText[id] === undefined) await fetchList(id);
   showList(); renderListTabs();
 }
 function showList() {
@@ -834,54 +838,103 @@ function renderContentBreakdown(b) {
   return h;
 }
 
-async function showListContent() {
-  const box = $('lcontent');
-  if (!box.classList.contains('hide')) { box.classList.add('hide'); return; }
-  box.classList.remove('hide');
-  box.innerHTML = '<span class="muted">…</span>';
-  try {
-    const d = await (await fetch('/api/list-content?name=' + encodeURIComponent(curList))).json();
-    const total = Object.values(d.total.counts || {}).reduce((a, b) => a + b, 0);
-    let h = '<div style="margin-bottom:6px"><b>' + (total ? t('lcTotal') + ': ' + total : t('lcEmpty')) + '</b></div>';
-    if (d.local) {
-      h += '<div class="card"><div class="muted">' + esc(t('lcLocal')) + '</div>' +
-           (renderContentBreakdown(d.local) || '<span class="muted">' + t('lcEmpty') + '</span>') + '</div>';
-    }
-    for (const r of d.remotes || []) {
-      h += '<div class="card"><div class="muted">' + esc(t('lcRemote')) + ': ' + esc(r.url) + '</div>' +
-           (r.cached ? (renderContentBreakdown(r) || '<span class="muted">' + t('lcEmpty') + '</span>')
-                     : '<div class="muted">' + t('lcNotCached') + '</div>') + '</div>';
-    }
-    box.innerHTML = h;
-  } catch (e) { box.innerHTML = '<span class="bad">' + esc(e.message) + '</span>'; }
+// Состав списка: name — vpn, direct или id группы; boxId — куда рисовать.
+async function toggleListContent(name, boxId) {
+  const box = $(boxId);
+  if (box.classList.contains('hide')) {
+    box.classList.remove('hide');
+    box.innerHTML = '<span class="muted">…</span>';
+    try {
+      const d = await (await fetch('/api/list-content?name=' + encodeURIComponent(name))).json();
+      const total = Object.values(d.total.counts || {}).reduce((a, b) => a + b, 0);
+      let h = '<div style="margin-bottom:6px"><b>' + (total ? t('lcTotal') + ': ' + total : t('lcEmpty')) + '</b></div>';
+      if (d.local) {
+        h += '<div class="card"><div class="muted">' + esc(t('lcLocal')) + '</div>' +
+             (renderContentBreakdown(d.local) || '<span class="muted">' + t('lcEmpty') + '</span>') + '</div>';
+      }
+      for (const r of d.remotes || []) {
+        h += '<div class="card"><div class="muted">' + esc(t('lcRemote')) + ': ' + esc(r.url) + '</div>' +
+             (r.cached ? (renderContentBreakdown(r) || '<span class="muted">' + t('lcEmpty') + '</span>')
+                       : '<div class="muted">' + t('lcNotCached') + '</div>') + '</div>';
+      }
+      box.innerHTML = h;
+    } catch (e) { box.innerHTML = '<span class="bad">' + esc(e.message) + '</span>'; }
+  } else {
+    box.classList.add('hide');
+  }
 }
+function showListContent() { toggleListContent(curList, 'lcontent'); }
 
 // ---------- группы ----------
-let groups = [], groupsDirty = false;
+// Группа — карточка: имя, режим (узлы/напрямую), фильтр, свой список, порядок.
+// Порядок карточек = порядок групп = порядок правил в 05_routing.json:
+// при перекрывающихся списках выигрывает группа, стоящая выше.
+let groups = [], groupsDirty = false, groupListText = {};
+
+function matchCount(filter) {
+  const nodes = (S && S.nodes) || [];
+  try { const re = new RegExp(filter.replace(/^\(\?i\)/, ''), filter.startsWith('(?i)') ? 'i' : ''); return nodes.filter(n => re.test(n.name)).length; }
+  catch (e) { return '?'; }
+}
+
 function renderGroups() {
-  const ts = (S && S.targets) || [], nodes = (S && S.nodes) || [];
   $('groupsEditor').innerHTML = groups.map((g, i) => {
-    let cnt = '';
-    if (g.filter !== undefined) {
-      try { const re = new RegExp(g.filter.replace(/^\(\?i\)/, ''), g.filter.startsWith('(?i)') ? 'i' : ''); cnt = nodes.filter(n => re.test(n.name)).length; } catch (e) { cnt = '?'; }
-    }
-    return '<div class="card"><div class="row">' +
+    const head = '<div class="row">' +
+      '<button title="↑" onclick="moveGroup(' + i + ',-1)"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
+      '<button title="↓" onclick="moveGroup(' + i + ',1)"' + (i === groups.length - 1 ? ' disabled' : '') + '>↓</button>' +
       '<input class="n" placeholder="' + esc(t('phGName')) + '" value="' + esc(g.name) + '" oninput="groups[' + i + '].name=this.value;groupsDirty=true">' +
-      '<input placeholder="' + esc(t('phGFilter')) + '" value="' + esc(g.filter) + '" oninput="groups[' + i + '].filter=this.value;groupsDirty=true;renderGroupCount(' + i + ')">' +
-      '<button onclick="groups.splice(' + i + ',1);groupsDirty=true;renderGroups()">' + t('del') + '</button></div>' +
-      '<div class="muted" id="gcnt' + i + '" style="margin-top:6px">' + t('matched') + ': ' + cnt + '</div></div>';
+      '<label class="check"><input type="checkbox" ' + (g.direct ? 'checked' : '') + ' onchange="groups[' + i + '].direct=this.checked;groupsDirty=true;renderGroups()"> ' + esc(t('gDirect')) + '</label>' +
+      '<button onclick="groups.splice(' + i + ',1);groupsDirty=true;renderGroups()">' + t('del') + '</button></div>';
+    const filter = g.direct ? '' :
+      '<div class="row" style="margin-top:6px"><input placeholder="' + esc(t('phGFilter')) + '" value="' + esc(g.filter) + '" oninput="groups[' + i + '].filter=this.value;groupsDirty=true">' +
+      '<span class="muted">' + t('matched') + ': ' + matchCount(g.filter) + '</span></div>';
+    const list = '<textarea id="gl_' + esc(g.id) + '" spellcheck="false" placeholder="' + esc(t('phGList')) + '" oninput="groupsDirty=true">' + esc(groupListText[g.id] || '') + '</textarea>' +
+      '<div class="row" style="margin-top:6px"><button onclick="toggleListContent(\'' + esc(g.id) + '\',\'lc_' + esc(g.id) + '\')">' + esc(t('listContent')) + '</button></div>' +
+      '<div id="lc_' + esc(g.id) + '" class="hide" style="margin-top:6px"></div>';
+    return '<div class="card">' + head + filter + list + '</div>';
   }).join('') || '<div class="muted">' + t('noGroups') + '</div>';
 }
-function renderGroupCount(i) {
-  const g = groups[i], nodes = (S && S.nodes) || [];
-  let cnt; try { const re = new RegExp(g.filter.replace(/^\(\?i\)/, ''), g.filter.startsWith('(?i)') ? 'i' : ''); cnt = nodes.filter(n => re.test(n.name)).length; } catch (e) { cnt = '?'; }
-  $('gcnt' + i).textContent = t('matched') + ': ' + cnt;
+
+function moveGroup(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= groups.length) return;
+  [groups[i], groups[j]] = [groups[j], groups[i]];
+  groupsDirty = true;
+  renderGroups();
 }
-function addGroup() { groups.push({id: '', name: '', filter: ''}); groupsDirty = true; renderGroups(); }
+
+function freshGroupId() {
+  const used = new Set(groups.map(g => g.id));
+  for (let i = 1; ; i++) { const id = 'g' + i; if (!used.has(id)) return id; }
+}
+
+function addGroup() {
+  const g = {id: freshGroupId(), name: '', filter: ''};
+  groups.push(g); groupsDirty = true;
+  groupListText[g.id] = '';
+  renderGroups();
+}
+
+// Содержимое списков групп подгружается при входе на вкладку.
+async function ensureGroupLists() {
+  for (const g of groups) {
+    if (groupListText[g.id] === undefined) {
+      try { groupListText[g.id] = await (await fetch('/api/list?name=' + encodeURIComponent(g.id))).text(); }
+      catch (e) { groupListText[g.id] = ''; }
+    }
+  }
+  renderGroups();
+}
+
 async function saveGroups() {
   $('gsave').disabled = true; setMsg('gmsg', 'muted', t('applying'));
+  const lists = {};
+  for (const g of groups) {
+    const ta = $('gl_' + g.id);
+    if (ta) lists[g.id] = ta.value;
+  }
   try {
-    await post('/api/groups', JSON.stringify(groups));
+    await post('/api/groups', JSON.stringify({groups, lists}));
     groupsDirty = false; setMsg('gmsg', 'ok', t('applied'));
   } catch (e) { setMsg('gmsg', 'bad', e.message); }
   $('gsave').disabled = false; await load();

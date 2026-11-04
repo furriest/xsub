@@ -218,11 +218,13 @@ func fetchRemote(ctx context.Context, c *Config, u string) error {
 
 // ---------- группы ----------
 
-// Group — свои списки через свою часть узлов (например, «YouTube через Нидерланды»).
+// Group — свои списки через свою часть узлов (например, «YouTube через Нидерланды»)
+// или, с direct, просто отдельный именованный список напрямую.
 type Group struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
-	Filter string `json:"filter"` // регулярное выражение по имени узла
+	Filter string `json:"filter"` // регулярное выражение по имени узла (не нужен при direct)
+	Direct bool   `json:"direct,omitempty"`
 }
 
 const (
@@ -474,10 +476,14 @@ type TargetDef struct {
 	Empty     bool     // в группе нет подходящих узлов — её трафик идёт основной целью
 }
 
-// targetDefs вычисляет цели: основная + группы с узлами по фильтру.
+// targetDefs вычисляет цели: основная + группы с узлами по фильтру. Группы
+// «напрямую» сюда не входят: им не нужны балансировщик, пробный вход и сторож.
 func targetDefs(c *Config, nodes []Node, groups []Group) []TargetDef {
 	defs := []TargetDef{{Name: "основной", Balancer: c.Xray.Balancer, ProbePort: c.Xray.ProbePort}}
 	for i, g := range groups {
+		if g.Direct {
+			continue
+		}
 		d := TargetDef{ID: g.ID, Name: g.Name, Balancer: c.Xray.Balancer + "-" + g.ID, ProbePort: c.Xray.ProbePort + 1 + i}
 		re, err := regexp.Compile(g.Filter)
 		if err == nil {

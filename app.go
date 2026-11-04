@@ -525,8 +525,9 @@ func (a *App) saveRouteDefault(v string) error {
 	return a.apply(nodes, "измён маршрут по умолчанию", false)
 }
 
-// saveGroups сохраняет группы; списки удалённых групп удаляются.
-func (a *App) saveGroups(gs []Group) error {
+// saveGroups сохраняет группы (в заданном порядке — он же порядок правил) и,
+// если переданы, содержимое их списков; при ошибке возвращает прежнее состояние.
+func (a *App) saveGroups(gs []Group, lists map[string]string) error {
 	for i := range gs {
 		gs[i].Name = strings.TrimSpace(gs[i].Name)
 		if gs[i].ID == "" {
@@ -536,26 +537,71 @@ func (a *App) saveGroups(gs []Group) error {
 	if err := validateGroups(gs); err != nil {
 		return err
 	}
+	// Содержимое списков проверяем до любых записей: сохранение не должно
+	// оставить конфиг с битым списком.
+	keep := map[string]bool{}
+	for _, g := range gs {
+		keep[g.ID] = true
+	}
+	for id, text := range lists {
+		if !keep[id] {
+			return fmt.Errorf("список %s не принадлежит ни одной группе", id)
+		}
+		_, remotes, errs := parseListFull(text)
+		if len(errs) > 0 {
+			return fmt.Errorf("список группы «%s»:\n%s", id, strings.Join(errs, "\n"))
+		}
+		// Новые внешние списки подгружаем сразу, чтобы попали в конфиг.
+		a.fetchMu.Lock()
+		var rerrs []string
+		for _, u := range remotes {
+			if _, err := os.Stat(remotePath(a.c, u)); err != nil {
+				if err := fetchRemote(context.Background(), a.c, u); err != nil {
+					rerrs = append(rerrs, fmt.Sprintf("%s: %v", u, err))
+				}
+			}
+		}
+		a.fetchMu.Unlock()
+		if len(rerrs) > 0 {
+			return fmt.Errorf("не удалось скачать внешний список:\n%s", strings.Join(rerrs, "\n"))
+		}
+	}
 	opMu.Lock()
 	defer opMu.Unlock()
 	old, _ := loadGroups(a.c)
+	oldLists := map[string][]byte{}
+	for id := range lists {
+		oldLists[id], _ = os.ReadFile(a.c.path(groupListName(id)))
+	}
 	b, _ := marshal(gs)
 	if err := writeStateFile(a.c.path(groupsFile), b); err != nil {
 		return err
 	}
-	keep := map[string]bool{}
 	for _, g := range gs {
-		keep[g.ID] = true
+		if _, ok := lists[g.ID]; ok {
+			continue // содержимое пришло в запросе
+		}
 		if _, err := os.Stat(a.c.path(groupListName(g.ID))); err != nil {
 			_ = os.WriteFile(a.c.path(groupListName(g.ID)), []byte("# Домены этой группы, формат как в vpn.txt\n"), 0o600)
+		}
+	}
+	for id, text := range lists {
+		if err := writeAtomicMode(a.c.path(groupListName(id)), []byte(text), 0o600); err != nil {
+			_ = writeStateFile(a.c.path(groupsFile), mustMarshal(old))
+			return err
 		}
 	}
 	a.mu.Lock()
 	nodes := a.nodes
 	a.mu.Unlock()
 	if err := a.apply(nodes, "изменены группы", false); err != nil {
-		if ob, e := marshal(old); e == nil {
-			_ = writeStateFile(a.c.path(groupsFile), ob)
+		_ = writeStateFile(a.c.path(groupsFile), mustMarshal(old))
+		for id, ob := range oldLists {
+			if ob == nil {
+				_ = os.Remove(a.c.path(groupListName(id)))
+			} else {
+				_ = writeAtomicMode(a.c.path(groupListName(id)), ob, 0o600)
+			}
 		}
 		return err
 	}
@@ -566,6 +612,11 @@ func (a *App) saveGroups(gs []Group) error {
 	}
 	lg.Printf("группы сохранены: %d", len(gs))
 	return nil
+}
+
+func mustMarshal(v any) []byte {
+	b, _ := marshal(v)
+	return b
 }
 
 func newGroupID(gs []Group) string {

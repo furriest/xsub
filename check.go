@@ -246,7 +246,11 @@ func (a *App) checkTarget(input string) CheckResult {
 		groups, _ := loadGroups(a.c)
 		for _, g := range groups {
 			if rule, notes := matchList(a.c, groupListName(g.ID), t); rule != "" {
-				res.Route, res.Target, res.List, res.Rule, res.Via = "group", g.Name, "Группа «"+g.Name+"»", rule, via(g.ID)
+				if g.Direct {
+					res.Route, res.Target, res.List, res.Rule = "direct", "Напрямую (группа «"+g.Name+"»)", "Группа «"+g.Name+"» (напрямую)", rule
+				} else {
+					res.Route, res.Target, res.List, res.Rule, res.Via = "group", g.Name, "Группа «"+g.Name+"»", rule, via(g.ID)
+				}
 				res.Notes = append(res.Notes, notes...)
 				break
 			} else {

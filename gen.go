@@ -218,6 +218,10 @@ func generate(c *Config, env Env, nodes, fbs []Node, rs RouteSet) (routing, xsub
 		}
 		return map[string]any{"balancerTag": d.Balancer}
 	}
+	defByID := map[string]TargetDef{}
+	for _, d := range defs {
+		defByID[d.ID] = d
+	}
 
 	var rules, inbounds []any
 	for _, d := range defs {
@@ -257,8 +261,14 @@ func generate(c *Config, env Env, nodes, fbs []Node, rs RouteSet) (routing, xsub
 		}
 	}
 	addRules(rs.Direct, direct)
-	for i, g := range rs.Groups {
-		addRules(g.Rules, targetOf(defs[i+1]))
+	// Порядок правил = порядок групп в groups.json = порядок на странице:
+	// при перекрывающихся списках выигрывает группа, стоящая раньше.
+	for _, g := range rs.Groups {
+		if g.Direct {
+			addRules(g.Rules, direct) // «напрямую»-группа — просто именованный список в direct
+			continue
+		}
+		addRules(g.Rules, targetOf(defByID[g.ID]))
 	}
 	addRules(rs.VPN, mainTarget)
 	// Трафик вне списков и групп — по переключателю «По умолчанию».

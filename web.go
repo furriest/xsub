@@ -114,12 +114,15 @@ func (a *App) handler() http.Handler {
 
 	// группы
 	post("/api/groups", func(w http.ResponseWriter, r *http.Request) {
-		var gs []Group
-		if err := body(r, &gs); err != nil {
+		var req struct {
+			Groups []Group           `json:"groups"`
+			Lists  map[string]string `json:"lists"` // id группы -> новое содержимое её списка
+		}
+		if err := body(r, &req); err != nil {
 			result(w, err)
 			return
 		}
-		result(w, a.saveGroups(gs))
+		result(w, a.saveGroups(req.Groups, req.Lists))
 	})
 
 	// маршрут по умолчанию: куда идёт трафик вне списков и групп
