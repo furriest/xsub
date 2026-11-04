@@ -356,8 +356,9 @@ func copyMap(m map[string]any) map[string]any {
 	return out
 }
 
-// saveFallbacks сохраняет резервы и применяет конфиг; при ошибке возвращает прежний список.
-func (a *App) saveFallbacks(in []Fallback) error {
+// saveFallbacks сохраняет резервы и применяет (apply=false откладывает
+// применение — см. saveList); при ошибке применения возвращает прежний список.
+func (a *App) saveFallbacks(in []Fallback, apply bool) error {
 	fbs, err := prepareFallbacks(a.c, in)
 	if err != nil {
 		return err
@@ -367,6 +368,11 @@ func (a *App) saveFallbacks(in []Fallback) error {
 	old, _ := loadFallbacks(a.c)
 	if err := saveFallbacksFile(a.c, fbs); err != nil {
 		return err
+	}
+	if !apply {
+		a.pendingApply.Store(true)
+		lg.Printf("резервные узлы сохранены: %d (без применения)", len(fbs))
+		return nil
 	}
 	a.mu.Lock()
 	nodes := a.nodes

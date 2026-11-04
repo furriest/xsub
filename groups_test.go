@@ -111,7 +111,7 @@ func TestSaveGroupsWithLists(t *testing.T) {
 		{ID: "g2", Name: "Первая", Direct: true},
 	}
 	lists := map[string]string{"g1": "one.example\n", "g2": "two.example\n"}
-	if err := a.saveGroups(gs, lists); err != nil {
+	if err := a.saveGroups(gs, lists, true); err != nil {
 		t.Fatal(err)
 	}
 	got, err := loadGroups(c)
@@ -129,7 +129,7 @@ func TestSaveGroupsWithLists(t *testing.T) {
 	}
 	// Битый список отклоняется до любых записей.
 	bad := map[string]string{"g1": "плохо но!!\n"}
-	if err := a.saveGroups(gs, bad); err == nil {
+	if err := a.saveGroups(gs, bad, true); err == nil {
 		t.Fatal("битый список должен отклоняться")
 	}
 	if b, _ := os.ReadFile(c.path(groupListName("g1"))); string(b) != "one.example\n" {

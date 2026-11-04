@@ -110,6 +110,10 @@ code{font:12px ui-monospace,Menlo,Consolas,monospace}
 <header>
   <h1>xsub <span class="muted" id="ver" style="font-size:13px;font-weight:400"></span></h1>
   <span class="grow"></span>
+  <span id="pendingBadge" class="row hide" style="gap:6px">
+    <span class="warn" data-i18n="pendingWarn"></span>
+    <button id="pendingBtn" data-i18n="applyNow" onclick="applySaved()"></button>
+  </span>
   <select id="lang" onchange="setLang(this.value)"><option value="ru">Русский</option><option value="en">English</option></select>
 </header>
 <div id="updBanner" class="banner hide"></div>
@@ -162,7 +166,8 @@ code{font:12px ui-monospace,Menlo,Consolas,monospace}
     <div class="row" style="margin-top:8px">
       <button data-i18n="addFb" onclick="addFb()"></button>
       <button data-i18n="addFbIface" onclick="addFbIface()"></button>
-      <button class="primary" id="fbsave" data-i18n="saveFb" onclick="saveFbs()"></button>
+      <button class="primary" id="fbsave" data-i18n="saveFb" onclick="saveFbs(null, true)"></button>
+      <button data-i18n="saveOnly" onclick="saveFbs(null, false)"></button>
       <span id="fbmsg" class="muted"></span>
     </div>
   </section>
@@ -192,14 +197,16 @@ code{font:12px ui-monospace,Menlo,Consolas,monospace}
     <textarea id="list" spellcheck="false"></textarea>
     <div id="groupsEditor" class="hide"></div>
     <div class="row" style="margin-top:8px" id="listBar">
-      <button class="primary" id="lsave" data-i18n="saveApply" onclick="saveList()"></button>
+      <button class="primary" id="lsave" data-i18n="saveApply" onclick="saveList(true)"></button>
+      <button data-i18n="saveOnly" onclick="saveList(false)"></button>
       <button data-i18n="listContent" onclick="showListContent()"></button>
       <span id="lmsg" class="muted"></span>
     </div>
     <div id="lcontent" class="hide" style="margin-top:8px"></div>
     <div class="row hide" style="margin-top:8px" id="groupsBar">
       <button data-i18n="addGroup" onclick="addGroup()"></button>
-      <button class="primary" id="gsave" data-i18n="saveGroups" onclick="saveGroups()"></button>
+      <button class="primary" id="gsave" data-i18n="saveGroups" onclick="saveGroups(true)"></button>
+      <button data-i18n="saveOnly" onclick="saveGroups(false)"></button>
       <span id="gmsg" class="muted"></span>
     </div>
   </section>
@@ -327,7 +334,7 @@ ru: {
   del:'Удалить', nodesN:'узлов', updated:'обновлена', cached:'сохранённая копия', traffic:'трафик', gb:'ГБ', until:'до', of:'из', notYet:'ещё не обновлялась', noSubs:'Подписок пока нет — добавьте ссылку.',
   lastTest:'проверен', agoMin:'мин назад', agoH:'ч назад', justNow:'только что', thNode:'Узел', thLat:'Задержка', thRel:'Надёжность', thState:'Состояние', sortHint:'щелчок — сортировка, ещё раз — наоборот, третий — как в конфиге', badUntil:'исключён до', select:'Выбрать', pickFor:'Выбрать для…', autoBtn:'Авто',
   nodesHint:'Надёжность — доля удачных проверок загрузкой: активный узел проверяется при каждой проверке сторожа, каждый запасной — в фоне раз в N минут (задаётся в настройках). Задержка обновляется при каждой такой проверке. При сбое сначала выбираются надёжные узлы, потом быстрые.',
-  listVPN:'Через VPN', listDirect:'Напрямую', saveApply:'Сохранить и применить', applying:'Проверяю и применяю…', applied:'Применено.', unsaved:'Есть несохранённые изменения. Переключиться без сохранения?',
+  listVPN:'Через VPN', listDirect:'Напрямую', saveApply:'Сохранить и применить', saveOnly:'Сохранить', saved:'Сохранено.', pendingWarn:'Есть сохранённые, но не применённые изменения', applyNow:'Применить', applying:'Проверяю и применяю…', applied:'Применено.', unsaved:'Есть несохранённые изменения. Переключиться без сохранения?',
   listContent:'Состав', lcTotal:'Всего правил', lcLocal:'Локальный файл', lcRemote:'Внешний список', lcNotCached:'ещё не скачан — состав будет виден после первого применения списка', lcSkipped:'строк пропущено (нет эквивалента в Xray)', lcErrors:'ошибки разбора', lcEmpty:'пусто',
   kDomain:'домены с поддоменами', kFull:'точные домены', kKeyword:'по ключевому слову', kRegexp:'по регулярному выражению', kGeosite:'категории geosite', kExt:'категории из geo-файлов', kIp:'IP и подсети', kGeoip:'GeoIP',
   defRoute:'По умолчанию:', defDirect:'Напрямую', defVPN:'Через VPN',
@@ -364,7 +371,7 @@ en: {
   del:'Delete', nodesN:'nodes', updated:'updated', cached:'saved copy', traffic:'traffic', gb:'GB', until:'until', of:'of', notYet:'not updated yet', noSubs:'No subscriptions yet — add a link.',
   lastTest:'checked', agoMin:'min ago', agoH:'h ago', justNow:'just now', thNode:'Node', thLat:'Latency', thRel:'Reliability', thState:'State', sortHint:'click to sort, again to reverse, third time back to config order', badUntil:'excluded until', select:'Select', pickFor:'Select for…', autoBtn:'Auto',
   nodesHint:'Reliability is the share of successful download checks: the active node is checked on every watchdog run, each spare node in the background once per N minutes (see Settings). Latency is refreshed on every such check. On failure reliable nodes are tried first, then fast ones.',
-  listVPN:'Via VPN', listDirect:'Direct', saveApply:'Save and apply', applying:'Checking and applying…', applied:'Applied.', unsaved:'You have unsaved changes. Switch anyway?',
+  listVPN:'Via VPN', listDirect:'Direct', saveApply:'Save and apply', saveOnly:'Save', saved:'Saved.', pendingWarn:'Saved but not applied changes', applyNow:'Apply', applying:'Checking and applying…', applied:'Applied.', unsaved:'You have unsaved changes. Switch anyway?',
   listContent:'Contents', lcTotal:'Total rules', lcLocal:'Local file', lcRemote:'Remote list', lcNotCached:'not downloaded yet — contents will appear after the list is first applied', lcSkipped:'lines skipped (no Xray equivalent)', lcErrors:'parse errors', lcEmpty:'empty',
   kDomain:'domains with subdomains', kFull:'exact domains', kKeyword:'by keyword', kRegexp:'by regular expression', kGeosite:'geosite categories', kExt:'categories from geo files', kIp:'IPs and subnets', kGeoip:'GeoIP',
   defRoute:'Default:', defDirect:'Direct', defVPN:'Via VPN',
@@ -540,6 +547,7 @@ function render() {
       '<div class="muted" style="margin-top:6px">' + t('day') + '</div>' + strip(tg.slots) + '</div>';
   }).join('') : '<div class="muted big">' + t('noNodes') + '</div>';
   $('sum').textContent = t('geo') + ': ' + when(s.geo_at) + (s.xray_up ? '' : ' · ' + t('xrayDown')) + (s.managed ? '' : ' · ' + t('notManaged'));
+  $('pendingBadge').classList.toggle('hide', !s.pending_apply);
   $('errs').textContent = [s.apply_err, s.geo_err].concat(s.bad_nodes || []).filter(Boolean).join('\n');
   $('warns').textContent = (s.list_warns || []).join('\n');
   const ev = (s.events || []).slice().reverse().slice(0, 30);
@@ -618,6 +626,15 @@ async function unpinNode(target) {
   try { await post('/api/select', JSON.stringify({Target: target, Tag: ''})); setMsg('msg', 'ok', t('done')); }
   catch (e) { setMsg('msg', 'bad', e.message); }
   load();
+}
+
+// Применить сохранённое без применения — кнопка в шапке рядом с предупреждением.
+async function applySaved() {
+  const b = $('pendingBtn');
+  b.disabled = true;
+  try { await post('/api/apply'); }
+  catch (e) { b.disabled = false; setMsg('msg', 'bad', e.message); return; }
+  b.disabled = false; load();
 }
 
 async function load() {
@@ -728,15 +745,15 @@ function renderFbs() {
 function moveFb(i, d) { const x = fbs[i]; fbs[i] = fbs[i + d]; fbs[i + d] = x; renderFbs(); }
 function addFb() { fbs.push({name: '', link: ''}); renderFbs(); }
 function addFbIface() { fbs.push({name: '', link: '', iface: '', isIface: true}); renderFbs(); }
-function importFb(tag) { saveFbs(fbs.concat([{name: tag, import: tag}])); }
-async function saveFbs(list) {
+function importFb(tag) { saveFbs(fbs.concat([{name: tag, import: tag}]), true); }
+async function saveFbs(list, apply) {
   list = (list || fbs).filter(f => f.import || f.outbound || (f.iface || '').trim() !== '' || (f.link || '').trim() !== '')
     .map(f => f.import ? {name: f.name, import: f.import}
       : f.outbound ? {name: f.name, outbound: f.outbound}
       : (f.iface || '').trim() !== '' ? {name: f.name, interface: f.iface.trim()}
       : {name: f.name, link: f.link});
   $('fbsave').disabled = true; setMsg('fbmsg', 'muted', t('applying'));
-  try { await post('/api/fallbacks', JSON.stringify(list)); setMsg('fbmsg', 'ok', t('applied')); await loadFbs(); }
+  try { await post('/api/fallbacks', JSON.stringify({fallbacks: list, apply})); setMsg('fbmsg', 'ok', apply ? t('applied') : t('saved')); await loadFbs(); }
   catch (e) { setMsg('fbmsg', 'bad', e.message); }
   $('fbsave').disabled = false; load();
 }
@@ -805,11 +822,12 @@ function showList() {
   else { $('list').value = listText[curList] || ''; setMsg('lmsg', 'muted', ''); }
 }
 $('list').addEventListener('input', () => dirty = true);
-async function saveList() {
+async function saveList(apply) {
   $('lsave').disabled = true; setMsg('lmsg', 'muted', t('applying'));
   try {
-    await post('/api/list?name=' + encodeURIComponent(curList), $('list').value);
-    listText[curList] = $('list').value; dirty = false; setMsg('lmsg', 'ok', t('applied'));
+    await post('/api/list?name=' + encodeURIComponent(curList) + (apply ? '' : '&apply=0'), $('list').value);
+    listText[curList] = $('list').value; dirty = false;
+    setMsg('lmsg', 'ok', apply ? t('applied') : t('saved'));
   } catch (e) { setMsg('lmsg', 'bad', e.message); }
   $('lsave').disabled = false; load();
 }
@@ -926,7 +944,7 @@ async function ensureGroupLists() {
   renderGroups();
 }
 
-async function saveGroups() {
+async function saveGroups(apply) {
   $('gsave').disabled = true; setMsg('gmsg', 'muted', t('applying'));
   const lists = {};
   for (const g of groups) {
@@ -934,8 +952,8 @@ async function saveGroups() {
     if (ta) lists[g.id] = ta.value;
   }
   try {
-    await post('/api/groups', JSON.stringify({groups, lists}));
-    groupsDirty = false; setMsg('gmsg', 'ok', t('applied'));
+    await post('/api/groups', JSON.stringify({groups, lists, apply}));
+    groupsDirty = false; setMsg('gmsg', 'ok', apply ? t('applied') : t('saved'));
   } catch (e) { setMsg('gmsg', 'bad', e.message); }
   $('gsave').disabled = false; await load();
 }

@@ -59,7 +59,7 @@ func (a *App) handler() http.Handler {
 	})
 	post("/api/list", func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
-		result(w, a.saveList(r.Context(), r.URL.Query().Get("name"), string(b)))
+		result(w, a.saveList(r.Context(), r.URL.Query().Get("name"), string(b), r.URL.Query().Get("apply") != "0"))
 	})
 
 	// узлы
@@ -117,12 +117,17 @@ func (a *App) handler() http.Handler {
 		var req struct {
 			Groups []Group           `json:"groups"`
 			Lists  map[string]string `json:"lists"` // id группы -> новое содержимое её списка
+			Apply  *bool             `json:"apply"` // false — сохранить без применения конфига
 		}
 		if err := body(r, &req); err != nil {
 			result(w, err)
 			return
 		}
-		result(w, a.saveGroups(req.Groups, req.Lists))
+		result(w, a.saveGroups(req.Groups, req.Lists, req.Apply == nil || *req.Apply))
+	})
+	// применить сохранённое без применения
+	post("/api/apply", func(w http.ResponseWriter, r *http.Request) {
+		result(w, a.applySaved())
 	})
 
 	// маршрут по умолчанию: куда идёт трафик вне списков и групп
@@ -146,12 +151,15 @@ func (a *App) handler() http.Handler {
 	// резервные узлы
 	get("/api/fallbacks", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, a.uiFallbacks()) })
 	post("/api/fallbacks", func(w http.ResponseWriter, r *http.Request) {
-		var fs []Fallback
-		if err := body(r, &fs); err != nil {
+		var req struct {
+			Fallbacks []Fallback `json:"fallbacks"`
+			Apply     *bool      `json:"apply"`
+		}
+		if err := body(r, &req); err != nil {
 			result(w, err)
 			return
 		}
-		result(w, a.saveFallbacks(fs))
+		result(w, a.saveFallbacks(req.Fallbacks, req.Apply == nil || *req.Apply))
 	})
 
 	// geo и внешние списки

@@ -48,6 +48,10 @@ type App struct {
 
 	upgrading  atomic.Bool // идёт обновление пакета: второе нажатие кнопки не нужно
 	refreshing atomic.Bool // идёт обновление подписок: страница следит за флагом в статусе
+	// pendingApply — файлы сохранены без применения: конфиг Xray устарел, на
+	// странице висит предупреждение с кнопкой «Применить». Снимается любым
+	// успешным apply (ручным, обновлением подписок, geo, списков).
+	pendingApply atomic.Bool
 
 	// fetchMu — одно скачивание за раз (подписки, geo, внешние списки). Отдельно от opMu:
 	// сеть с таймаутами в полторы минуты не должна держать сторож. Порядок захвата
@@ -170,6 +174,7 @@ func (a *App) apply(nodes []Node, reason string, force bool) error {
 		a.nodes, a.fbs = nil, nil
 		a.mu.Unlock()
 		a.w.setNodes(nil, nil, nil)
+		a.pendingApply.Store(false) // применять нечего и нечего было
 		return nil
 	}
 	good, bad := validateNodes(a.c, append(append([]Node(nil), nodes...), fbs...))
@@ -201,6 +206,7 @@ func (a *App) apply(nodes []Node, reason string, force bool) error {
 		lg.Printf("конфиг не применён (%s): %v", reason, err)
 		return err
 	}
+	a.pendingApply.Store(false) // конфиг теперь отражает сохранённые файлы
 	a.rememberWritten()
 	groups, _ := loadGroups(a.c)
 	a.w.setNodes(nodes, fbs, targetDefs(a.c, nodes, groups))
@@ -462,8 +468,10 @@ func (a *App) listFile(name string) (string, error) {
 	return "", fmt.Errorf("нет списка %s", name)
 }
 
-// saveList сохраняет список и применяет; при ошибке возвращает старый файл.
-func (a *App) saveList(ctx context.Context, name, text string) error {
+// saveList сохраняет список. apply=false откладывает применение конфига —
+// страница покажет предупреждение «есть неприменённое», применить можно
+// позже одной кнопкой. При ошибке применения возвращает старый файл.
+func (a *App) saveList(ctx context.Context, name, text string, apply bool) error {
 	file, err := a.listFile(name)
 	if err != nil {
 		return err
@@ -493,6 +501,11 @@ func (a *App) saveList(ctx context.Context, name, text string) error {
 	if err := writeAtomicMode(p, []byte(text), 0o600); err != nil {
 		return err
 	}
+	if !apply {
+		a.pendingApply.Store(true)
+		lg.Printf("сохранён %s (без применения)", file)
+		return nil
+	}
 	a.mu.Lock()
 	nodes := a.nodes
 	a.mu.Unlock()
@@ -502,6 +515,17 @@ func (a *App) saveList(ctx context.Context, name, text string) error {
 	}
 	lg.Printf("сохранён %s", file)
 	return nil
+}
+
+// applySaved применяет сохранённые файлы к текущим узлам — кнопка «Применить»
+// для изменений, сохранённых без применения.
+func (a *App) applySaved() error {
+	a.mu.Lock()
+	nodes := a.nodes
+	a.mu.Unlock()
+	opMu.Lock()
+	defer opMu.Unlock()
+	return a.apply(nodes, "применение сохранённого", false)
 }
 
 // saveRouteDefault запоминает маршрут по умолчанию («direct»/«vpn» — куда идёт
@@ -527,7 +551,8 @@ func (a *App) saveRouteDefault(v string) error {
 
 // saveGroups сохраняет группы (в заданном порядке — он же порядок правил) и,
 // если переданы, содержимое их списков; при ошибке возвращает прежнее состояние.
-func (a *App) saveGroups(gs []Group, lists map[string]string) error {
+// apply=false откладывает применение конфига — см. saveList.
+func (a *App) saveGroups(gs []Group, lists map[string]string, apply bool) error {
 	for i := range gs {
 		gs[i].Name = strings.TrimSpace(gs[i].Name)
 		if gs[i].ID == "" {
@@ -591,6 +616,16 @@ func (a *App) saveGroups(gs []Group, lists map[string]string) error {
 			return err
 		}
 	}
+	for _, g := range old {
+		if !keep[g.ID] {
+			_ = os.Remove(a.c.path(groupListName(g.ID)))
+		}
+	}
+	if !apply {
+		a.pendingApply.Store(true)
+		lg.Printf("группы сохранены: %d (без применения)", len(gs))
+		return nil
+	}
 	a.mu.Lock()
 	nodes := a.nodes
 	a.mu.Unlock()
@@ -604,11 +639,6 @@ func (a *App) saveGroups(gs []Group, lists map[string]string) error {
 			}
 		}
 		return err
-	}
-	for _, g := range old {
-		if !keep[g.ID] {
-			_ = os.Remove(a.c.path(groupListName(g.ID)))
-		}
 	}
 	lg.Printf("группы сохранены: %d", len(gs))
 	return nil
@@ -813,21 +843,22 @@ func every(ctx context.Context, what string, d time.Duration, f func()) {
 
 type AppStatus struct {
 	Status
-	Version    string         `json:"version"`
-	Host       string         `json:"host"`       // имя устройства — в заголовке страницы
-	Latest     string         `json:"latest"`
-	Refreshing bool           `json:"refreshing"` // идёт обновление подписок
-	Server     bool           `json:"server"`     // серверный режим (Docker): обновление — новым образом
-	Subs       []SubStatusOut `json:"subs"`
-	Groups     []Group        `json:"groups"`
-	GeoAt      time.Time      `json:"geo_at"`
-	GeoErr     string         `json:"geo_err"`
-	ApplyErr   string         `json:"apply_err"`
-	BadNodes   []string       `json:"bad_nodes"`
-	ListWarns  []string       `json:"list_warns"`
-	Managed    bool           `json:"managed"`
-	Events     []Event        `json:"events"`
-	Log        []string       `json:"log"`
+	Version      string         `json:"version"`
+	Host         string         `json:"host"` // имя устройства — в заголовке страницы
+	Latest       string         `json:"latest"`
+	Refreshing   bool           `json:"refreshing"`    // идёт обновление подписок
+	PendingApply bool           `json:"pending_apply"` // есть сохранённое, но не применённое
+	Server       bool           `json:"server"`        // серверный режим (Docker): обновление — новым образом
+	Subs         []SubStatusOut `json:"subs"`
+	Groups       []Group        `json:"groups"`
+	GeoAt        time.Time      `json:"geo_at"`
+	GeoErr       string         `json:"geo_err"`
+	ApplyErr     string         `json:"apply_err"`
+	BadNodes     []string       `json:"bad_nodes"`
+	ListWarns    []string       `json:"list_warns"`
+	Managed      bool           `json:"managed"`
+	Events       []Event        `json:"events"`
+	Log          []string       `json:"log"`
 }
 
 type SubStatusOut struct {
@@ -836,7 +867,7 @@ type SubStatusOut struct {
 }
 
 func (a *App) status() AppStatus {
-	s := AppStatus{Status: a.w.status(), Version: version, Host: hostName, Managed: managed(a.c), Refreshing: a.refreshing.Load(), Server: serverMode}
+	s := AppStatus{Status: a.w.status(), Version: version, Host: hostName, Managed: managed(a.c), Refreshing: a.refreshing.Load(), PendingApply: a.pendingApply.Load(), Server: serverMode}
 	s.Groups, _ = loadGroups(a.c)
 	a.mu.Lock()
 	for _, sub := range a.subs {
