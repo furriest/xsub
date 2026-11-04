@@ -181,15 +181,22 @@ func matchList(c *Config, file, target string) (rule string, notes []string) {
 				notes = append(notes, "внешний список ещё не скачан: "+v)
 				continue
 			}
-			for _, rr := range strings.Split(string(cached), "\n") {
-				k, vv, e := parseLine(strings.TrimSpace(rr))
-				if e != nil || k == "" || k == "remote" {
-					continue
-				}
-				if ok, n := check(k, vv); n != "" {
+			// Кэш разбирается тем же универсальным парсером, что и при
+			// применении конфига: иначе проверка не видит часть форматов
+			// и показывает маршрут не по тому правилу, что реально сработает.
+			rr, _ := parseRemote(string(cached))
+			for _, d := range rr.Domains {
+				if ok, n := check("domain", d); n != "" {
 					notes = append(notes, n)
 				} else if ok {
-					return strings.TrimSpace(raw) + " → " + strings.TrimSpace(rr), notes
+					return strings.TrimSpace(raw) + " → " + d, notes
+				}
+			}
+			for _, p := range rr.IPs {
+				if ok, n := check("ip", p); n != "" {
+					notes = append(notes, n)
+				} else if ok {
+					return strings.TrimSpace(raw) + " → " + p, notes
 				}
 			}
 			continue
