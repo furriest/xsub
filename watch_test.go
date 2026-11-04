@@ -206,6 +206,39 @@ func TestSwitchFasterMovesToQuickerNode(t *testing.T) {
 // Решение о переходе на быстрый узел принимается по свежему замеру обоих
 // в один момент: хранимые задержки сняты в разные моменты, и шум канала или
 // процессора превращался в ложную разницу и ложные переключения.
+// Ручной выбор и его снятие: unpin возвращает цель в автовыбор,
+// повторное снятие — ошибка.
+func TestPinUnpin(t *testing.T) {
+	f := &fakeProbe{
+		lat:    map[int]int{11000: 50, 11001: 10},
+		load:   map[int]error{11000: nil, 11001: nil, 10990: nil},
+		online: true, bo: map[string]string{},
+	}
+	w := newTestWatcher(f, []Node{mkNode("node-a", "A"), mkNode("node-b", "B")}, nil)
+	tgt := w.target("")
+	if err := w.pin("", "node-b"); err != nil {
+		t.Fatal(err)
+	}
+	w.mu.Lock()
+	pinned, active := tgt.Pinned, tgt.Active
+	w.mu.Unlock()
+	if !pinned || active != "node-b" {
+		t.Fatalf("pinned=%v active=%q", pinned, active)
+	}
+	if err := w.unpin(""); err != nil {
+		t.Fatal(err)
+	}
+	w.mu.Lock()
+	pinned = tgt.Pinned
+	w.mu.Unlock()
+	if pinned {
+		t.Fatal("после unpin Pinned должен быть снят")
+	}
+	if err := w.unpin(""); err == nil {
+		t.Fatal("повторное снятие должно давать ошибку")
+	}
+}
+
 func TestSwitchFasterConfirmsWithFreshMeasurement(t *testing.T) {
 	f := &fakeProbe{
 		lat: map[int]int{11000: 100, 11001: 50},

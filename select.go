@@ -308,6 +308,21 @@ func (w *Watcher) pin(targetID, tag string) error {
 	return nil
 }
 
+// unpin снимает ручной выбор цели — дальше она работает в автовыборе.
+func (w *Watcher) unpin(targetID string) error {
+	w.mu.Lock()
+	t := w.target(targetID)
+	if t == nil || !t.Pinned {
+		w.mu.Unlock()
+		return fmt.Errorf("эта цель не выбрана вручную")
+	}
+	t.Pinned = false
+	w.mu.Unlock()
+	lg.Printf("снят ручной выбор%s — автовыбор", t.where())
+	w.selectNode(t, "снятие ручного выбора")
+	return nil
+}
+
 // reselect — автовыбор для всех целей. Под opMu.
 func (w *Watcher) reselect(reason string) {
 	for _, t := range w.allTargets() {

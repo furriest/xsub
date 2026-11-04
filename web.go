@@ -71,6 +71,10 @@ func (a *App) handler() http.Handler {
 		}
 		opMu.Lock()
 		defer opMu.Unlock()
+		if req.Tag == "" {
+			result(w, a.w.unpin(req.Target)) // снять ручной выбор — автовыбор
+			return
+		}
 		result(w, a.w.pin(req.Target, req.Tag))
 	})
 	post("/api/auto", func(w http.ResponseWriter, r *http.Request) {
