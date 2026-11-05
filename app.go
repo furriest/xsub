@@ -86,20 +86,26 @@ func subKey(u string) string {
 
 func (a *App) cachePath(u string) string { return a.c.path(filepath.Join("cache", subKey(u)+".txt")) }
 
-// fetchSub качает и разбирает подписку. HWID отправляется, только если без него
-// узлов нет: иначе роутер зря занимал бы место в лимите устройств у панелей,
-// которые пускают и без HWID. Тело парсится один раз — с тем флагом multi, с
-// которым узлы пойдут в работу. hwid=true — панель выдала узлы только с HWID.
+// fetchSub отправляет HWID сразу по настройке подписки, иначе только при
+// повторе после ответа без узлов. hwid=true означает успешный запрос с HWID.
 func (a *App) fetchSub(ctx context.Context, s Subscription, ua string, sock any, multi bool) ([]byte, http.Header, []Node, []string, bool, error) {
-	b, h, err := fetchURLHeaders(ctx, a.c, s.URL, subHeaders(ua, ""), 8<<20)
+	id := ""
+	if s.ForceHWID {
+		var err error
+		id, err = deviceHWID(a.c)
+		if err != nil {
+			return nil, nil, nil, nil, false, fmt.Errorf("не удалось получить или сохранить HWID устройства: %w", err)
+		}
+	}
+	b, h, err := fetchURLHeaders(ctx, a.c, s.URL, subHeaders(ua, id), 8<<20)
 	if err != nil {
 		return nil, nil, nil, nil, false, err
 	}
 	n, w := a.parseSub(s, b, sock, multi)
-	if len(n) > 0 {
-		return b, h, n, w, false, nil
+	if len(n) > 0 || s.ForceHWID {
+		return b, h, n, w, s.ForceHWID && len(n) > 0, nil
 	}
-	if id := deviceHWID(a.c); id != "" {
+	if id, _ := deviceHWID(a.c); id != "" {
 		if b2, h2, err2 := fetchURLHeaders(ctx, a.c, s.URL, subHeaders(ua, id), 8<<20); err2 == nil {
 			if n2, w2 := a.parseSub(s, b2, sock, multi); len(n2) > 0 {
 				lg.Printf("подписка «%s»: панель выдаёт узлы только с HWID — отправлен HWID роутера", s.Name)

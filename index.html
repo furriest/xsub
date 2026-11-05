@@ -51,6 +51,11 @@ pre{margin:0;max-height:420px;overflow:auto;font:12px/1.45 ui-monospace,Menlo,Co
 .card{border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px}
 .card .row input{flex:1 1 200px}
 .card .row input.n{flex:1 1 140px;max-width:220px}
+.hwid-row{display:flex;align-items:center;gap:8px;margin-top:8px;position:relative}
+.hwid-row label{flex:none;display:flex;flex-direction:row;align-items:center;gap:6px}
+.hwid-help summary{cursor:pointer;color:var(--acc);list-style:none}
+.hwid-help summary::-webkit-details-marker{display:none}
+.hwid-help div{position:absolute;z-index:2;left:0;top:100%;width:min(320px,calc(100vw - 64px));padding:10px;background:var(--panel);border:1px solid var(--line);border-radius:7px;box-shadow:0 3px 12px #0003}
 /* Узлы: служебные столбцы шириной по содержимому, «Состояние» забирает весь остаток
    и переносится в нём. Иначе длинный текст ошибки растягивал её за счёт соседей,
    и адрес узла с «проверен: N мин назад» ломались на две строки. */
@@ -328,6 +333,7 @@ ru: {
   addSub:'+ Добавить подписку', saveSubs:'Сохранить подписки', saved:'Сохранено.', saving:'Сохраняю…',
   subsHint:'Подходят ссылки vless/vmess/trojan/ss/hysteria2/wireguard/socks/http (списком или в base64), Clash/mihomo YAML, sing-box JSON и JSON Xray. Фильтр — регулярное выражение по имени узла, например (?i)Россия|Осталось. Информационные строки панелей пропускаются сами.',
   phName:'Название', phUrl:'https://… ссылка на подписку', phEx:'Исключить узлы (регулярное выражение)', phIn:'Только узлы (необязательно)', phUA:'User-Agent (необяз.)',
+  forceHwid:'Всегда отправлять HWID', hwidHelpLabel:'Подробнее об отправке HWID', hwidHelp:'Если включено, HWID отправляется сразу. Если выключено, он всё равно может быть отправлен автоматически при повторном запросе, когда сервер ответил, но не вернул подходящие узлы. Провайдер может учитывать устройство в своём лимите.',
   fbTitle:'Резервные узлы', fbHint:'Включаются, только когда не работает ни один узел подписок; раз в 10 минут xsub пробует вернуться на подписку. Порядок — приоритет. Подходят те же ссылки, что и в подписках (vless://, socks://, http:// и др.), а также интерфейс самого роутера: трафик уйдёт через туннель Keenetic OS, минуя Xray.',
   addFb:'+ Добавить резерв', addFbIface:'+ Интерфейс роутера', saveFb:'Сохранить резервы', phFbLink:'ссылка: vless://…, socks://user:pass@host:port, …', phFbIface:'интерфейс роутера: nwg0, ovpn_br0…', fbOutbound:'outbound из конфигов Xray', fbIfaceDown:'не поднят', noFbs:'Резервов нет.',
   fbImportTitle:'Перенести из конфигов Xray', fbImportHint:'Outbound скопируется в xsub; исходный файл XKeen не меняется — после переноса его можно удалить оттуда.', fbImported:'уже перенесён', fbLegacy:'сейчас запасной', fbImportBtn:'Перенести',
@@ -365,6 +371,7 @@ en: {
   addSub:'+ Add subscription', saveSubs:'Save subscriptions', saved:'Saved.', saving:'Saving…',
   subsHint:'Supported: vless/vmess/trojan/ss/hysteria2/wireguard/socks/http links (plain or base64), Clash/mihomo YAML, sing-box JSON and Xray JSON. The filter is a regular expression on node names, e.g. (?i)Russia|Remaining. Info entries from panels are skipped automatically.',
   phName:'Name', phUrl:'https://… subscription link', phEx:'Exclude nodes (regular expression)', phIn:'Only nodes (optional)', phUA:'User-Agent (optional)',
+  forceHwid:'Always send HWID', hwidHelpLabel:'About sending HWID', hwidHelp:'When enabled, HWID is sent immediately. When disabled, it may still be sent automatically on a retry if the server responds without suitable nodes. The provider may count this device against its limit.',
   fbTitle:'Fallback nodes', fbHint:'Used only when no subscription node works; every 10 minutes xsub tries to switch back to the subscription. Order is priority. Same links as in subscriptions (vless://, socks://, http:// etc.), or a router interface: traffic then leaves through a Keenetic OS tunnel, bypassing Xray.',
   addFb:'+ Add fallback', addFbIface:'+ Router interface', saveFb:'Save fallbacks', phFbLink:'link: vless://…, socks://user:pass@host:port, …', phFbIface:'router interface: nwg0, ovpn_br0…', fbOutbound:'outbound from Xray configs', fbIfaceDown:'down', noFbs:'No fallbacks.',
   fbImportTitle:'Move from Xray configs', fbImportHint:'The outbound is copied into xsub; the XKeen file is not changed — you can delete it there afterwards.', fbImported:'already moved', fbLegacy:'current fallback', fbImportBtn:'Move',
@@ -668,6 +675,8 @@ function renderSubs() {
     return '<div class="card"><div class="row">' + inp('name', 'phName', 'n') + inp('url', 'phUrl') +
       '<button onclick="subs.splice(' + i + ',1);subsDirty=true;renderSubs()">' + t('del') + '</button></div>' +
       '<div class="row" style="margin-top:6px">' + inp('exclude', 'phEx') + inp('include', 'phIn') + inp('user_agent', 'phUA', 'n') + '</div>' +
+      '<div class="hwid-row"><label><input type="checkbox" ' + (s.force_hwid ? 'checked ' : '') + 'onchange="subs[' + i + '].force_hwid=this.checked;subsDirty=true">' + esc(t('forceHwid')) + '</label>' +
+      '<details class="hwid-help"><summary aria-label="' + esc(t('hwidHelpLabel')) + '">ⓘ</summary><div>' + esc(t('hwidHelp')) + '</div></details></div>' +
       '<div style="margin-top:6px">' + subState(st) + '</div></div>';
   }).join('') || '<div class="muted">' + t('noSubs') + '</div>';
 }
