@@ -53,11 +53,67 @@ func tail(s string, n int) string {
 func restartXray(c *Config) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	out, err := runCmd(ctx, nil, "/bin/sh", "-c", c.Xray.RestartCmd)
+	out, err := runRestartCmd(ctx, c.Xray.RestartCmd)
 	if err != nil {
 		return fmt.Errorf("%s: %v\n%s", c.Xray.RestartCmd, err, tail(out, 6))
 	}
 	return nil
+}
+
+// runRestartCmd не ждёт закрытия вывода потомками команды: запущенный Xray
+// может унаследовать канал и держать его открытым до следующего перезапуска.
+// После завершения команды канал продолжают вычитывать, чтобы Xray не получил
+// закрытый pipe; сохраняется только ограниченный хвост вывода самой команды.
+func runRestartCmd(ctx context.Context, command string) (string, error) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	cmd.Stdout, cmd.Stderr = w, w
+	if err := cmd.Start(); err != nil {
+		_ = r.Close()
+		_ = w.Close()
+		return "", err
+	}
+	_ = w.Close()
+	var mu sync.Mutex
+	var output []byte
+	capturing := true
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer r.Close()
+		buf := make([]byte, 4096)
+		for {
+			n, e := r.Read(buf)
+			if n > 0 {
+				mu.Lock()
+				if capturing {
+					output = append(output, buf[:n]...)
+					if len(output) > 64<<10 {
+						output = append([]byte(nil), output[len(output)-(64<<10):]...)
+					}
+				}
+				mu.Unlock()
+			}
+			if e != nil {
+				return
+			}
+		}
+	}()
+	err = cmd.Wait()
+	// Даём читателю получить последние данные команды; EOF может не наступить,
+	// если запущенное ядро продолжает держать канал открытым.
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+	}
+	mu.Lock()
+	capturing = false
+	out := string(output)
+	mu.Unlock()
+	return out, err
 }
 
 func originalDir(c *Config) string { return c.path(filepath.Join("backup", "original")) }
