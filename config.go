@@ -41,6 +41,7 @@ type Subscription struct {
 	Name      string `json:"name"`
 	URL       string `json:"url"`
 	UserAgent string `json:"user_agent,omitempty"`
+	ForceHWID bool   `json:"force_hwid,omitempty"`
 	Exclude   string `json:"exclude,omitempty"` // регулярное выражение по имени узла
 	Include   string `json:"include,omitempty"` // если задано — брать только совпавшие
 	// только для чтения старого формата

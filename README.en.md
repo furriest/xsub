@@ -9,6 +9,7 @@ XKeen intercepts traffic and runs Xray. xsub manages the contents.
 ## Features
 
 - **Subscriptions:** `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://` (`hy2://`), `wireguard://` (`wg://`), `socks://`, `http(s)://` links (plain or base64); **Clash/mihomo YAML**, **sing-box JSON**, **Xray JSON** (full configs as served by Remnawave/Marzban). Transports: TCP (incl. HTTP header), WebSocket, gRPC, HTTPUpgrade, XHTTP, mKCP; TLS and Reality; Hysteria2 salamander, certificate pinning, port hopping. Name filters, multiple subscriptions. If a panel with a device limit (Remnawave) serves stubs without HWID, the request is retried with a persistent `x-hwid` — file `/opt/etc/xsub/hwid` is created automatically.
+- Enable **Always send HWID** per subscription to include the device ID in the first request. It is disabled by default; the automatic HWID retry when a response has no suitable nodes remains enabled. The provider may count the router against its device limit.
 - **Balancer** `leastPing` + observatory, written to `07_xsub.json`.
 - **Watchdog** checks the active node every minute with a **real download** (32 KB by default — above the block threshold where `generate_204` still passes; configurable). Custom addresses: `watchdog.check_urls`. Switching goes through the Xray API, no core restart.
 - **Reliability:** spare nodes are download-checked in the background every 30 minutes; 24-hour history; on failure proven nodes are tried first, not the lowest ping.

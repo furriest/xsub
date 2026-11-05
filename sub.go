@@ -95,36 +95,42 @@ func subHeaders(ua, hwid string) http.Header {
 }
 
 var (
-	hwidMu    sync.Mutex
-	hwidCache string
+	hwidMu       sync.Mutex
+	hwidCache    string
+	hwidWriteErr error
 )
 
 // deviceHWID — постоянный идентификатор роутера для панели подписок. Хранится в
 // файле hwid рядом с конфигом (и в памяти — на случай, если файл не записать):
 // при каждом новом значении панель считала бы роутер новым устройством.
 // В файл можно вписать HWID своего устройства.
-func deviceHWID(c *Config) string {
+func deviceHWID(c *Config) (string, error) {
 	hwidMu.Lock()
 	defer hwidMu.Unlock()
 	if hwidCache != "" {
-		return hwidCache
+		if hwidWriteErr != nil {
+			hwidWriteErr = os.WriteFile(c.path("hwid"), []byte(hwidCache+"\n"), 0o600)
+		}
+		return hwidCache, hwidWriteErr
 	}
 	p := c.path("hwid")
 	if b, err := os.ReadFile(p); err == nil {
 		if id := strings.TrimSpace(string(b)); id != "" {
 			hwidCache = id
-			return id
+			hwidWriteErr = nil
+			return id, nil
 		}
 	}
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
-		return ""
+		return "", err
 	}
 	hwidCache = hex.EncodeToString(buf)
-	if err := os.WriteFile(p, []byte(hwidCache+"\n"), 0o600); err != nil {
-		lg.Printf("не удалось сохранить HWID: %v", err)
+	hwidWriteErr = os.WriteFile(p, []byte(hwidCache+"\n"), 0o600)
+	if hwidWriteErr != nil {
+		lg.Printf("не удалось сохранить HWID: %v", hwidWriteErr)
 	}
-	return hwidCache
+	return hwidCache, hwidWriteErr
 }
 
 // cleanErr убирает из ошибки адрес подписки (в нём часто секретный токен).
