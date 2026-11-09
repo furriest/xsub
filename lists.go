@@ -218,15 +218,26 @@ func fetchRemote(ctx context.Context, c *Config, u string) error {
 
 // ---------- группы ----------
 
-// Group — свои списки через свою часть узлов (например, «YouTube через Нидерланды»)
-// или, с direct, просто отдельный именованный список напрямую.
+// Режимы группы: обычная — через свои узлы с общим/выбранным резервом;
+// direct — именованный список напрямую; strict — только через свои узлы,
+// при недоступности всех трафик блокируется (blackhole), резервы не подставляются.
+const (
+	GroupDirect = "direct"
+	GroupStrict = "strict"
+)
+
+// Group — свои списки через свою часть узлов (например, «YouTube через Нидерланды»),
+// напрямую (direct) или строго, с блокировкой при отказе всех узлов (strict).
 type Group struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
-	Filter string `json:"filter"` // регулярное выражение по имени узла (не нужен при direct)
-	Direct bool   `json:"direct,omitempty"`
+	Filter string `json:"filter"` // регулярное выражение по имени узла (только обычный и strict)
+	Mode   string `json:"mode,omitempty"`
+	// Direct — старый формат режима «напрямую»; при загрузке переносится в Mode.
+	Direct bool `json:"direct,omitempty"`
 	// Fallback — тег резервного узла, который берёт балансировщик группы, когда
 	// не жив ни один её узел ("" — общий резерв, первый в списке резервов).
+	// Только обычный режим.
 	Fallback string `json:"fallback,omitempty"`
 }
 
@@ -287,6 +298,13 @@ func loadGroups(c *Config) ([]Group, error) {
 		}
 		return nil, err
 	}
+	for i := range gs {
+		// старые конфиги: direct:true -> mode:"direct"
+		if gs[i].Mode == "" && gs[i].Direct {
+			gs[i].Mode = GroupDirect
+		}
+		gs[i].Direct = false
+	}
 	if usedBackup {
 		lg.Printf("%s повреждён — поднята .bak-копия", groupsFile)
 	}
@@ -305,6 +323,15 @@ func validateGroups(gs []Group) error {
 		seen[g.ID] = true
 		if strings.TrimSpace(g.Name) == "" {
 			return fmt.Errorf("у группы %s нет названия", g.ID)
+		}
+		if g.Mode != "" && g.Mode != GroupDirect && g.Mode != GroupStrict {
+			return fmt.Errorf("группа «%s»: неизвестный режим %q", g.Name, g.Mode)
+		}
+		if g.Mode != "" && g.Fallback != "" {
+			return fmt.Errorf("группа «%s»: резерв нужен только обычной группе — в режиме «%s» трафик при отказе идёт %s", g.Name, g.Mode, map[string]string{GroupDirect: "напрямую", GroupStrict: "в блокировку"}[g.Mode])
+		}
+		if g.Mode == GroupDirect {
+			continue // фильтр не нужен
 		}
 		if _, err := regexp.Compile(g.Filter); err != nil {
 			return fmt.Errorf("группа «%s»: ошибка в фильтре: %v", g.Name, err)
@@ -477,17 +504,19 @@ type TargetDef struct {
 	ProbePort int      // локальный вход для проверки «как ходит трафик этой цели»
 	Tags      []string // узлы цели; nil — все узлы
 	Empty     bool     // в группе нет подходящих узлов — её трафик идёт основной целью
+	Strict    bool     // цель без резервов: при отказе всех узлов трафик блокируется
 }
 
 // targetDefs вычисляет цели: основная + группы с узлами по фильтру. Группы
 // «напрямую» сюда не входят: им не нужны балансировщик, пробный вход и сторож.
+// Строгие группы входят, но с флагом Strict — без резервов, с блокировкой.
 func targetDefs(c *Config, nodes []Node, groups []Group) []TargetDef {
 	defs := []TargetDef{{Name: "основной", Balancer: c.Xray.Balancer, ProbePort: c.Xray.ProbePort}}
 	for i, g := range groups {
-		if g.Direct {
+		if g.Mode == GroupDirect {
 			continue
 		}
-		d := TargetDef{ID: g.ID, Name: g.Name, Balancer: c.Xray.Balancer + "-" + g.ID, ProbePort: c.Xray.ProbePort + 1 + i}
+		d := TargetDef{ID: g.ID, Name: g.Name, Balancer: c.Xray.Balancer + "-" + g.ID, ProbePort: c.Xray.ProbePort + 1 + i, Strict: g.Mode == GroupStrict}
 		re, err := regexp.Compile(g.Filter)
 		if err == nil {
 			for _, n := range nodes {

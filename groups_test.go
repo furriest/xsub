@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // «Напрямую»-группа: свои домены уходят в direct-outbound, балансировщика,
@@ -17,7 +19,7 @@ func TestGenerateDirectGroup(t *testing.T) {
 	})
 	nodes, _ := parseSubscription(decodeSubscription([]byte(sampleSub())), parseOpts{})
 	gs := []Group{
-		{ID: "g1", Name: "AI напрямую", Direct: true},
+		{ID: "g1", Name: "AI напрямую", Mode: GroupDirect},
 		{ID: "g2", Name: "Anthropic", Filter: "(?i)netherlands"},
 	}
 	rs := RouteSet{
@@ -118,6 +120,88 @@ func TestGenerateGroupFallback(t *testing.T) {
 	}
 }
 
+// Строгая группа: балансировщик без резервов; пустая строгая группа шлёт
+// трафик в blackhole-outbound.
+func TestGenerateStrictGroup(t *testing.T) {
+	c := defaultConfig()
+	c.Xray.ConfDir = t.TempDir()
+	writeConf(t, c.Xray.ConfDir, map[string]string{
+		"03_inbounds.json": `{"inbounds":[{"tag":"redirect","port":1,"protocol":"dokodemo-door"}]}`,
+	})
+	nodes, _ := parseSubscription(decodeSubscription([]byte(sampleSub())), parseOpts{})
+	fbN := mkNode("fb-aaaaaaaa", "Резерв")
+	fbN.Outbound = map[string]any{"tag": "fb-aaaaaaaa", "protocol": "freedom"}
+	rs := RouteSet{Groups: []GroupRules{
+		{Group: Group{ID: "g1", Name: "Строгая", Filter: "(?i)netherlands", Mode: GroupStrict}, Rules: Rules{Domains: []string{"domain:strict.example"}}},
+		{Group: Group{ID: "g2", Name: "Пустая строгая", Filter: "^нет-узлов$", Mode: GroupStrict}, Rules: Rules{Domains: []string{"domain:strict-empty.example"}}},
+	}}
+	env, _ := scanEnv(c)
+	r, x, err := generate(c, env, nodes, []Node{fbN}, rs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, sx := string(r), string(x)
+	i := strings.Index(s, `"balancers"`)
+	j := strings.Index(s[i:], `"rules"`)
+	bals := s[i : i+j]
+	// Глобальный резерв присутствует (основной балансировщик), но не у строгой g1.
+	if !strings.Contains(bals, "fb-aaaaaaaa") {
+		t.Errorf("общий резерв должен быть у основной цели:\n%s", bals)
+	}
+	if strings.Count(bals, "fb-aaaaaaaa") != 1 {
+		t.Errorf("у строгой группы не должно быть fallbackTag:\n%s", bals)
+	}
+	if !strings.Contains(s, `"outboundTag": "xsub-block"`) || !strings.Contains(s, "strict-empty.example") {
+		t.Errorf("пустая строгая группа должна идти в blackhole:\n%s", s)
+	}
+	if !strings.Contains(sx, `"protocol": "blackhole"`) || !strings.Contains(sx, "xsub-block") {
+		t.Errorf("blackhole-outbound должен быть в 07_xsub.json:\n%s", sx)
+	}
+}
+
+// Строгая группа на стороже: все узлы лежат, резерв есть — но трафик
+// блокируется blackhole'ом, резерв не подставляется.
+func TestStrictGroupDropsInsteadOfFallback(t *testing.T) {
+	errDown := errors.New("лежит")
+	f := &fakeProbe{
+		lat:    map[int]int{11000: 10, 11001: 10},
+		load:   map[int]error{11000: errDown, 11001: errDown, 10990: nil, 10991: errDown},
+		online: true, bo: map[string]string{},
+	}
+	c := defaultConfig()
+	c.Watch.StatsFile = ""
+	w := newWatcher(c)
+	w.pr = f
+	w.setNodes([]Node{mkNode("node-a", "A")}, []Node{mkNode("fb-test1", "Резерв")},
+		[]TargetDef{
+			{Name: "основной", Balancer: "xsub", ProbePort: 10990},
+			{ID: "g1", Name: "Строгая", Balancer: "xsub-g1", ProbePort: 10991, Strict: true, Tags: []string{"node-a"}},
+		})
+	tgt := w.target("g1")
+	w.mu.Lock()
+	tgt.Active = "node-a"
+	tgt.lastSelect = time.Now().Add(-time.Hour)
+	w.mu.Unlock()
+
+	w.selectNode(tgt, "тест")
+	if got := f.bo["xsub-g1"]; got != blockTag {
+		t.Fatalf("строгая группа должна быть закреплена за blackhole, а не за %q", got)
+	}
+	if f.bo["xsub"] == "fb-test1" {
+		t.Fatal("резерв не должен подставляться")
+	}
+	w.mu.Lock()
+	down := tgt.Down
+	w.mu.Unlock()
+	if !down {
+		t.Fatal("цель должна быть помечена down")
+	}
+	// Ручной выбор резерва для строгой группы запрещён.
+	if err := w.pin("g1", "fb-test1"); err == nil {
+		t.Fatal("pin резерва в строгую группу должен отклоняться")
+	}
+}
+
 func TestCheckTargetDirectGroup(t *testing.T) {
 	a := checkTestApp(t, map[string]string{
 		"vpn.txt":      "ai-direct.example\n",
@@ -143,7 +227,7 @@ func TestSaveGroupsWithLists(t *testing.T) {
 	}
 	gs := []Group{
 		{ID: "g1", Name: "Вторая", Filter: "x"},
-		{ID: "g2", Name: "Первая", Direct: true},
+		{ID: "g2", Name: "Первая", Mode: GroupDirect},
 	}
 	lists := map[string]string{"g1": "one.example\n", "g2": "two.example\n"}
 	if err := a.saveGroups(gs, lists, true); err != nil {
@@ -153,7 +237,7 @@ func TestSaveGroupsWithLists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].ID != "g1" || got[1].ID != "g2" || !got[1].Direct {
+	if len(got) != 2 || got[0].ID != "g1" || got[1].ID != "g2" || got[1].Mode != GroupDirect {
 		t.Fatalf("порядок/флаги не сохранились: %+v", got)
 	}
 	for id, want := range lists {

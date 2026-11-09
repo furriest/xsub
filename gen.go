@@ -16,6 +16,7 @@ const (
 	probeTag    = "xsub-probe"
 	testPrefix  = "xsub-test-"
 	ownDirect   = "xsub-direct"
+	blockTag    = "xsub-block" // blackhole для строгих групп при отказе всех узлов
 )
 
 func testTag(n Node) string {
@@ -263,12 +264,24 @@ func generate(c *Config, env Env, nodes, fbs []Node, rs RouteSet) (routing, xsub
 	addRules(rs.Direct, direct)
 	// Порядок правил = порядок групп в groups.json = порядок на странице:
 	// при перекрывающихся списках выигрывает группа, стоящая раньше.
+	strictAny := false
 	for _, g := range rs.Groups {
-		if g.Direct {
-			addRules(g.Rules, direct) // «напрямую»-группа — просто именованный список в direct
-			continue
+		if g.Mode == GroupStrict {
+			strictAny = true
 		}
-		addRules(g.Rules, targetOf(defByID[g.ID]))
+		switch g.Mode {
+		case GroupDirect:
+			addRules(g.Rules, direct) // «напрямую»-группа — просто именованный список в direct
+		case GroupStrict:
+			d := defByID[g.ID]
+			target := targetOf(d)
+			if d.Empty {
+				target = map[string]any{"outboundTag": blockTag} // узлов нет — строго блокируем
+			}
+			addRules(g.Rules, target)
+		default:
+			addRules(g.Rules, targetOf(defByID[g.ID]))
+		}
 	}
 	addRules(rs.VPN, mainTarget)
 	// Трафик вне списков и групп — по переключателю «По умолчанию».
@@ -298,9 +311,13 @@ func generate(c *Config, env Env, nodes, fbs []Node, rs RouteSet) (routing, xsub
 				sel = d.Tags
 			}
 			bal := map[string]any{"tag": d.Balancer, "selector": sel, "strategy": map[string]any{"type": "leastPing"}}
-			fbTag := fallback
-			if t, ok := groupFB[d.ID]; ok {
-				fbTag = t
+			// Строгая группа без резервов: неживые узлы = блокировка, а не запасной outbound.
+			fbTag := ""
+			if !d.Strict {
+				fbTag = fallback
+				if t, ok := groupFB[d.ID]; ok {
+					fbTag = t
+				}
 			}
 			if fbTag != "" {
 				bal["fallbackTag"] = fbTag
@@ -325,6 +342,10 @@ func generate(c *Config, env Env, nodes, fbs []Node, rs RouteSet) (routing, xsub
 			ob["streamSettings"] = map[string]any{"sockopt": so}
 		}
 		outbounds = append(outbounds, ob)
+	}
+	if strictAny {
+		// blackhole для строгих групп: когда не жив ни один их узел
+		outbounds = append(outbounds, map[string]any{"tag": blockTag, "protocol": "blackhole"})
 	}
 	doc := map[string]any{}
 	if x.ManageAPI {

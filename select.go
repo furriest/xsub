@@ -96,6 +96,21 @@ func (w *Watcher) selectNode(t *Target, reason string) {
 		}
 		return
 	}
+	if t.Strict {
+		// Строгая группа без резервов: неживые узлы — блокировка трафика.
+		if err := w.override(t.Balancer, blockTag); err != nil {
+			lg.Printf("не удалось заблокировать балансировщик %s: %v", t.Balancer, err)
+			return
+		}
+		w.mu.Lock()
+		wasDown := t.Down
+		t.Active, t.Pinned, t.Fails, t.Down, t.LastOK = blockTag, false, 0, true, time.Now()
+		w.mu.Unlock()
+		if !wasDown {
+			w.say("down"+t.ID, "down", fmt.Sprintf("%s%s: все узлы группы недоступны (проверено: %d) — трафик группы блокируется, резервы не подставляются (строгий режим)", reason, t.where(), tried))
+		}
+		return
+	}
 	if w.tryFallbacks(t, prev, reason, tried) {
 		return
 	}
@@ -296,6 +311,9 @@ func (w *Watcher) pin(targetID, tag string) error {
 	w.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("нет такого узла в этой группе")
+	}
+	if t.Strict && isFallbackTag(tag) {
+		return fmt.Errorf("строгая группа не принимает резервы: при отказе всех узлов её трафик блокируется")
 	}
 	if err := w.override(t.Balancer, tag); err != nil {
 		return err
