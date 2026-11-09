@@ -914,7 +914,9 @@ function renderGroups() {
         '<option value="block"' + (fbValue === 'block' ? ' selected' : '') + '>Blackhole</option>' +
         '<option value=""' + (fbValue === '' ? ' selected' : '') + '>' + esc(t('fbShared')) + '</option>' + fbOpts + '</select>') +
       '<button onclick="groups.splice(' + i + ',1);groupsDirty=true;renderGroups()">' + t('del') + '</button></div>';
-    const filter = g.mode !== '' ? '' :
+    // Фильтр нужен обычной и строгой группе (обе идут через узлы);
+    // скрывается только у «напрямую».
+    const filter = g.mode === 'direct' ? '' :
       '<div class="row" style="margin-top:6px"><input placeholder="' + esc(t('phGFilter')) + '" value="' + esc(g.filter) + '" oninput="groups[' + i + '].filter=this.value;groupsDirty=true">' +
       '<span class="muted">' + t('matched') + ': ' + matchCount(g.filter) + '</span></div>';
     const list = '<textarea id="gl_' + esc(g.id) + '" spellcheck="false" placeholder="' + esc(t('phGList')) + '" oninput="groupsDirty=true">' + esc(groupListText[g.id] || '') + '</textarea>' +
