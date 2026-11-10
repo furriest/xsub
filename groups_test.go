@@ -200,6 +200,69 @@ func TestStrictGroupDropsInsteadOfFallback(t *testing.T) {
 	if err := w.pin("g1", "fb-test1"); err == nil {
 		t.Fatal("pin резерва в строгую группу должен отклоняться")
 	}
+	// Пока блокировка стоит, checkTarget не проверяет blackhole как узел:
+	// сразу идёт попытка вернуть рабочий узел, при неживых — повторная блокировка.
+	delete(f.bo, "xsub-g1")
+	w.checkTarget(tgt)
+	if got := f.bo["xsub-g1"]; got != blockTag {
+		t.Fatalf("блокировка должна сохраниться, bo=%q", got)
+	}
+	// Узел ожил — checkTarget возвращает его без «залипшего blackhole».
+	f.load[11000] = nil
+	w.checkTarget(tgt)
+	w.mu.Lock()
+	active := tgt.Active
+	w.mu.Unlock()
+	if active != "node-a" {
+		t.Fatalf("должен вернуться рабочий узел, active=%q", active)
+	}
+}
+
+// Режим «не использовать резерв»: при отказе всех узлов группа остаётся
+// на последнем работавшем — балансировщик не трогаем, резерв не подставляем.
+func TestNoFallbackStaysOnLastNode(t *testing.T) {
+	errDown := errors.New("лежит")
+	f := &fakeProbe{
+		lat:    map[int]int{11000: 10, 11001: 10},
+		load:   map[int]error{11000: errDown, 11001: errDown, 10990: nil, 10991: errDown},
+		online: true, bo: map[string]string{},
+	}
+	c := defaultConfig()
+	c.Watch.StatsFile = ""
+	w := newWatcher(c)
+	w.pr = f
+	w.setNodes([]Node{mkNode("node-a", "A")}, []Node{mkNode("fb-test1", "Резерв")},
+		[]TargetDef{
+			{Name: "основной", Balancer: "xsub", ProbePort: 10990},
+			{ID: "g1", Name: "Без резерва", Balancer: "xsub-g1", ProbePort: 10991, NoFallback: true, Tags: []string{"node-a"}},
+		})
+	tgt := w.target("g1")
+	w.mu.Lock()
+	tgt.Active = "node-a"
+	w.mu.Unlock()
+
+	w.selectNode(tgt, "тест")
+	if len(f.bo) != 0 {
+		t.Fatalf("балансировщик тронут: %v", f.bo)
+	}
+	w.mu.Lock()
+	active, down := tgt.Active, tgt.Down
+	w.mu.Unlock()
+	if active != "node-a" || !down {
+		t.Fatalf("должны остаться на node-a с флагом down: active=%q down=%v", active, down)
+	}
+	if err := w.pin("g1", "fb-test1"); err == nil {
+		t.Fatal("pin резерва в группу без резерва должен отклоняться")
+	}
+	// Узел ожил — следующий выбор снимает down как обычно.
+	f.load[11000] = nil
+	w.selectNode(tgt, "возврат")
+	w.mu.Lock()
+	down = tgt.Down
+	w.mu.Unlock()
+	if down {
+		t.Fatal("down должен сняться после выбора живого узла")
+	}
 }
 
 func TestCheckTargetDirectGroup(t *testing.T) {

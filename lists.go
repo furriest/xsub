@@ -220,10 +220,13 @@ func fetchRemote(ctx context.Context, c *Config, u string) error {
 
 // Режимы группы: обычная — через свои узлы с общим/выбранным резервом;
 // direct — именованный список напрямую; strict — только через свои узлы,
-// при недоступности всех трафик блокируется (blackhole), резервы не подставляются.
+// при недоступности всех трафик блокируется (blackhole), резервы не подставляются;
+// nofallback — резервы не используются, при отказе всех узлов остаёмся
+// на последнем работавшем (он может ожить или смениться на следующей проверке).
 const (
-	GroupDirect = "direct"
-	GroupStrict = "strict"
+	GroupDirect     = "direct"
+	GroupStrict     = "strict"
+	GroupNoFallback = "nofallback"
 )
 
 // Group — свои списки через свою часть узлов (например, «YouTube через Нидерланды»),
@@ -324,11 +327,11 @@ func validateGroups(gs []Group) error {
 		if strings.TrimSpace(g.Name) == "" {
 			return fmt.Errorf("у группы %s нет названия", g.ID)
 		}
-		if g.Mode != "" && g.Mode != GroupDirect && g.Mode != GroupStrict {
+		if g.Mode != "" && g.Mode != GroupDirect && g.Mode != GroupStrict && g.Mode != GroupNoFallback {
 			return fmt.Errorf("группа «%s»: неизвестный режим %q", g.Name, g.Mode)
 		}
 		if g.Mode != "" && g.Fallback != "" {
-			return fmt.Errorf("группа «%s»: резерв нужен только обычной группе — в режиме «%s» трафик при отказе идёт %s", g.Name, g.Mode, map[string]string{GroupDirect: "напрямую", GroupStrict: "в блокировку"}[g.Mode])
+			return fmt.Errorf("группа «%s»: резерв нужен только обычной группе — в режиме «%s» трафик при отказе идёт %s", g.Name, g.Mode, map[string]string{GroupDirect: "напрямую", GroupStrict: "в блокировку", GroupNoFallback: "на последний узел"}[g.Mode])
 		}
 		if g.Mode == GroupDirect {
 			continue // фильтр не нужен
@@ -498,13 +501,14 @@ func readRouting(c *Config) (RouteSet, []string, error) {
 
 // TargetDef — куда направляется «VPN»-трафик: основной балансировщик или балансировщик группы.
 type TargetDef struct {
-	ID        string   // "" — основной
-	Name      string   // для журнала и страницы
-	Balancer  string   // тег балансировщика
-	ProbePort int      // локальный вход для проверки «как ходит трафик этой цели»
-	Tags      []string // узлы цели; nil — все узлы
-	Empty     bool     // в группе нет подходящих узлов — её трафик идёт основной целью
-	Strict    bool     // цель без резервов: при отказе всех узлов трафик блокируется
+	ID         string   // "" — основной
+	Name       string   // для журнала и страницы
+	Balancer   string   // тег балансировщика
+	ProbePort  int      // локальный вход для проверки «как ходит трафик этой цели»
+	Tags       []string // узлы цели; nil — все узлы
+	Empty      bool     // в группе нет подходящих узлов — её трафик идёт основной целью
+	Strict     bool     // цель без резервов: при отказе всех узлов трафик блокируется
+	NoFallback bool     // резервы не используются: при отказе остаёмся на последнем узле
 }
 
 // targetDefs вычисляет цели: основная + группы с узлами по фильтру. Группы
@@ -516,7 +520,7 @@ func targetDefs(c *Config, nodes []Node, groups []Group) []TargetDef {
 		if g.Mode == GroupDirect {
 			continue
 		}
-		d := TargetDef{ID: g.ID, Name: g.Name, Balancer: c.Xray.Balancer + "-" + g.ID, ProbePort: c.Xray.ProbePort + 1 + i, Strict: g.Mode == GroupStrict}
+		d := TargetDef{ID: g.ID, Name: g.Name, Balancer: c.Xray.Balancer + "-" + g.ID, ProbePort: c.Xray.ProbePort + 1 + i, Strict: g.Mode == GroupStrict, NoFallback: g.Mode == GroupStrict || g.Mode == GroupNoFallback}
 		re, err := regexp.Compile(g.Filter)
 		if err == nil {
 			for _, n := range nodes {

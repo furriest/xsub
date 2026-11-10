@@ -111,6 +111,21 @@ func (w *Watcher) selectNode(t *Target, reason string) {
 		}
 		return
 	}
+	if t.NoFallback && prev != "" {
+		// Резерв не используется: остаёмся на последнем работавшем узле —
+		// он может ожить, а следующая проверка сама выберет живой, если появится.
+		// Балансировщик не трогаем: закрепление за prev стоит и дальше направляет
+		// трафик через него.
+		w.mu.Lock()
+		wasDown := t.Down
+		t.Down, t.Fails = true, 0
+		name := w.nodeName(prev)
+		w.mu.Unlock()
+		if !wasDown {
+			w.say("down"+t.ID, "down", fmt.Sprintf("%s%s: все узлы группы недоступны — остаюсь на «%s» (резерв не используется)", reason, t.where(), name))
+		}
+		return
+	}
 	if w.tryFallbacks(t, prev, reason, tried) {
 		return
 	}
@@ -314,6 +329,9 @@ func (w *Watcher) pin(targetID, tag string) error {
 	}
 	if t.Strict && isFallbackTag(tag) {
 		return fmt.Errorf("строгая группа не принимает резервы: при отказе всех узлов её трафик блокируется")
+	}
+	if t.NoFallback && isFallbackTag(tag) {
+		return fmt.Errorf("у группы резерв отключён: при отказе всех узлов она остаётся на последнем работавшем")
 	}
 	if err := w.override(t.Balancer, tag); err != nil {
 		return err

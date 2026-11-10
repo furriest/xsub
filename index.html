@@ -346,7 +346,7 @@ ru: {
   kDomain:'домены с поддоменами', kFull:'точные домены', kKeyword:'по ключевому слову', kRegexp:'по регулярному выражению', kGeosite:'категории geosite', kExt:'категории из geo-файлов', kIp:'IP и подсети', kGeoip:'GeoIP',
   defRoute:'По умолчанию:', defDirect:'Напрямую', defVPN:'Через VPN',
   groups:'Группы',
-  addGroup:'+ Добавить группу', saveGroups:'Сохранить группы', phGName:'Название группы', phGFilter:'Фильтр узлов, например (?i)нидерланд|NL', phGList:'Домены группы — по строке, формат как в vpn.txt', gDirectTitle:'группа идёт напрямую, без узлов', gStrictTitle:'blackhole: трафик идёт только через узлы группы; если все недоступны — блокируется', fbOnFail:'При отказе узлов:', fbShared:'общий резерв', matched:'подходящих узлов', noGroups:'Групп нет.',
+  addGroup:'+ Добавить группу', saveGroups:'Сохранить группы', phGName:'Название группы', phGFilter:'Фильтр узлов, например (?i)нидерланд|NL', phGList:'Домены группы — по строке, формат как в vpn.txt', gDirectTitle:'группа идёт напрямую, без узлов', fbOnFailTitle:'что делать, когда не прошёл ни один узел группы', fbOnFail:'При отказе узлов:', fbNone:'не использовать', fbShared:'общий резерв', matched:'подходящих узлов', noGroups:'Групп нет.',
   routeTitle:'Куда пойдёт этот сайт?', routePh:'домен, ссылка или IP-адрес', routeBtn:'Проверить', rList:'Список', rRule:'Правило', rVia:'Сейчас через',
   setMain:'Подписки и узлы', sInterval:'Обновлять подписки', sUA:'User-Agent по умолчанию', sMax:'Узлов из подписки', none:'— нет —',
   setWatch:'Сторож', sWEnabled:'Проверять узлы', sWInterval:'Интервал проверки', sWFails:'Неудач до переключения', sWFaster:'Переходить на быстрый узел', hFaster:'если запасной надёжен не хуже текущего и быстрее его на столько миллисекунд; 0 — не переходить. Нужна фоновая проверка — задержки берутся из неё', sWBg:'Проверка запасных узлов', hBg:'каждый узел раз в N минут; 0 — выключено', sWSize:'Размер проверки', hSize:'блокировка срабатывает на 16–20 КБ — берите больше', sWRestart:'Перезапускать XKeen', hRestart:'если Xray упал; не трогает, если запущен mihomo', sWUrls:'Сайты для проверки', hUrls:'дополнительно должны открываться через узел; по одному адресу в строке',
@@ -384,7 +384,7 @@ en: {
   kDomain:'domains with subdomains', kFull:'exact domains', kKeyword:'by keyword', kRegexp:'by regular expression', kGeosite:'geosite categories', kExt:'categories from geo files', kIp:'IPs and subnets', kGeoip:'GeoIP',
   defRoute:'Default:', defDirect:'Direct', defVPN:'Via VPN',
   groups:'Groups',
-  addGroup:'+ Add group', saveGroups:'Save groups', phGName:'Group name', phGFilter:'Node filter, e.g. (?i)netherlands|NL', phGList:'Group domains — one per line, same format as vpn.txt', gDirectTitle:'group goes direct, no nodes', gStrictTitle:'blackhole: traffic goes only through the group nodes; when all are down it is blocked', fbOnFail:'On node failure:', fbShared:'shared fallback', matched:'matching nodes', noGroups:'No groups.',
+  addGroup:'+ Add group', saveGroups:'Save groups', phGName:'Group name', phGFilter:'Node filter, e.g. (?i)netherlands|NL', phGList:'Group domains — one per line, same format as vpn.txt', gDirectTitle:'group goes direct, no nodes', fbOnFailTitle:'what to do when every group node fails the check', fbOnFail:'On node failure:', fbNone:'do not use', fbShared:'shared fallback', matched:'matching nodes', noGroups:'No groups.',
   routeTitle:'Where will this site go?', routePh:'domain, link or IP address', routeBtn:'Check', rList:'List', rRule:'Rule', rVia:'Currently via',
   setMain:'Subscriptions and nodes', sInterval:'Update subscriptions', sUA:'Default User-Agent', sMax:'Nodes per subscription', none:'— none —',
   setWatch:'Watchdog', sWEnabled:'Check nodes', sWInterval:'Check interval', sWFails:'Failures before switch', sWFaster:'Switch to a faster node', hFaster:'when a spare is at least as reliable as the current one and this many milliseconds faster; 0 — off. Needs background checks: latencies come from them', sWBg:'Spare node checks', hBg:'each node once per N minutes; 0 — off', sWSize:'Check size', hSize:'a common block triggers at 16–20 KB — use more', sWRestart:'Restart XKeen', hRestart:'if Xray crashed; skipped when mihomo runs', sWUrls:'Sites to check', hUrls:'must also open through the node; one address per line',
@@ -912,16 +912,18 @@ function renderGroups() {
     // узлы, при отказе всех трафик блокируется), дальше общий и конкретные.
     const fbOpts = ((FB && FB.fallbacks) || []).filter(f => f.tag && !f.err)
       .map(f => '<option value="' + esc(f.tag) + '"' + (g.fallback === f.tag ? ' selected' : '') + '>' + esc(f.name || f.tag) + '</option>').join('');
-    const fbValue = g.mode === 'strict' ? 'block' : (g.fallback || '');
+    const fbValue = g.mode === 'strict' ? 'block' : (g.mode === 'nofallback' ? 'none' : (g.fallback || ''));
     const head = '<div class="row">' +
       '<button title="↑" onclick="moveGroup(' + i + ',-1)"' + (i === 0 ? ' disabled' : '') + '>↑</button>' +
       '<button title="↓" onclick="moveGroup(' + i + ',1)"' + (i === groups.length - 1 ? ' disabled' : '') + '>↓</button>' +
       '<input class="n" placeholder="' + esc(t('phGName')) + '" value="' + esc(g.name) + '" oninput="groups[' + i + '].name=this.value;groupsDirty=true">' +
       '<button class="' + (g.mode === 'direct' ? 'on' : '') + '" title="' + esc(t('gDirectTitle')) + '" onclick="toggleMode(' + i + ',\'direct\')">' + esc(t('defDirect')) + '</button>' +
       (g.mode === 'direct' ? '' : '<span class="muted">' + esc(t('fbOnFail')) + '</span>' +
-        '<select title="' + esc(t('gStrictTitle')) + '" onchange="setGroupFb(' + i + ',this.value)">' +
+        '<select title="' + esc(t('fbOnFailTitle')) + '" onchange="setGroupFb(' + i + ',this.value)">' +
+        '<option value="none"' + (fbValue === 'none' ? ' selected' : '') + '>' + esc(t('fbNone')) + '</option>' +
+        '<option value=""' + (fbValue === '' ? ' selected' : '') + '>' + esc(t('fbShared')) + '</option>' + fbOpts +
         '<option value="block"' + (fbValue === 'block' ? ' selected' : '') + '>Blackhole</option>' +
-        '<option value=""' + (fbValue === '' ? ' selected' : '') + '>' + esc(t('fbShared')) + '</option>' + fbOpts + '</select>') +
+        '</select>') +
       '<button onclick="groups.splice(' + i + ',1);groupsDirty=true;renderGroups()">' + t('del') + '</button></div>';
     // Фильтр нужен обычной и строгой группе (обе идут через узлы);
     // скрывается только у «напрямую».
@@ -942,11 +944,15 @@ function toggleMode(i, m) {
   renderGroups();
 }
 
-// Выбор резерва группы: «block» — строгий режим (blackhole), «» — общий резерв,
+// Выбор резерва группы: «none» — не использовать (оставаться на последнем
+// работавшем узле), «block» — строгий режим (blackhole), «» — общий резерв,
 // иначе — тег конкретного резерва.
 function setGroupFb(i, v) {
   if (v === 'block') {
     groups[i].mode = 'strict';
+    groups[i].fallback = '';
+  } else if (v === 'none') {
+    groups[i].mode = 'nofallback';
     groups[i].fallback = '';
   } else {
     groups[i].mode = '';

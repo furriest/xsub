@@ -74,6 +74,12 @@ func (w *Watcher) checkTarget(t *Target) {
 		w.selectNode(t, "возврат с резерва")
 		return
 	}
+	// Блокировка строгой группы — не отказ узла: blackhole не проверяем и
+	// в статистику не пишем, сразу пробуем вернуть рабочий узел.
+	if active == blockTag {
+		w.selectNode(t, "проверка после блокировки")
+		return
+	}
 	err := w.realTest(t.ProbePort)
 	if err != nil {
 		if !w.internetOK() {

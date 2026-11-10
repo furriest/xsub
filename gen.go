@@ -311,9 +311,10 @@ func generate(c *Config, env Env, nodes, fbs []Node, rs RouteSet) (routing, xsub
 				sel = d.Tags
 			}
 			bal := map[string]any{"tag": d.Balancer, "selector": sel, "strategy": map[string]any{"type": "leastPing"}}
-			// Строгая группа без резервов: неживые узлы = блокировка, а не запасной outbound.
+			// Строгие и «без резерва» группы не получают fallbackTag:
+			// неживые узлы не перекладываются на запасной outbound.
 			fbTag := ""
-			if !d.Strict {
+			if !d.NoFallback {
 				fbTag = fallback
 				if t, ok := groupFB[d.ID]; ok {
 					fbTag = t
