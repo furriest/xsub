@@ -12,7 +12,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -185,8 +184,10 @@ func (a *App) upgrade(arch string) error {
 // installPackage ставит пакет отдельным процессом: opkg остановит и снова запустит
 // xsub, поэтому ждать окончания сам xsub не может.
 func (a *App) installPackage(path string) error {
-	script := "sleep 1\nopkg install '" + path + "' 2>&1\n" +
-		`echo "$(date '+%F %T') готово, код $?"` + "\nrm -f '" + path + "'"
+	// Код opkg запоминается сразу: в строке с $(date …) переменная $? была бы уже
+	// кодом date, и журнал всегда показывал бы «код 0».
+	script := "sleep 1\nopkg install '" + path + "' 2>&1\nrc=$?\n" +
+		`echo "$(date '+%F %T') готово, код $rc"` + "\nrm -f '" + path + "'"
 	f, err := os.OpenFile(updateLog, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
@@ -195,7 +196,7 @@ func (a *App) installPackage(path string) error {
 	cmd := exec.Command("/bin/sh", "-c", script)
 	cmd.Stdout, cmd.Stderr = f, f
 	cmd.Env = append(os.Environ(), "PATH=/opt/sbin:/opt/bin:/usr/sbin:/usr/bin:/sbin:/bin")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	detach(cmd)
 	if err := cmd.Start(); err != nil {
 		return err
 	}

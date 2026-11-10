@@ -8,6 +8,7 @@ import (
 )
 
 func TestRunCmdDoesNotWaitForBackgroundOutput(t *testing.T) {
+	unixOnly(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	start := time.Now()
@@ -21,6 +22,7 @@ func TestRunCmdDoesNotWaitForBackgroundOutput(t *testing.T) {
 }
 
 func TestRunCmdReportsErrorAndTimeout(t *testing.T) {
+	unixOnly(t)
 	out, err := runRestartCmd(context.Background(), "echo failed >&2; exit 7")
 	if err == nil || !strings.Contains(out, "failed") {
 		t.Fatalf("output=%q error=%v", out, err)

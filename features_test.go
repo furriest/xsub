@@ -7,11 +7,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+// unixPerms — права файлов проверяемы. На Windows их нет, а тесты там
+// запускают при разработке.
+var unixPerms = runtime.GOOS != "windows"
 
 func newTestApp(t *testing.T) *App {
 	t.Helper()
@@ -397,7 +402,7 @@ func TestWriteAtomicMode(t *testing.T) {
 		t.Fatalf("%q %v", b, err)
 	}
 	fi, err := os.Stat(p)
-	if err != nil || fi.Mode().Perm() != 0o600 {
+	if err != nil || (unixPerms && fi.Mode().Perm() != 0o600) {
 		t.Fatalf("права %v %v", fi.Mode().Perm(), err)
 	}
 	// Временных файлов после себя не оставляем.
@@ -591,5 +596,14 @@ func TestBisectNodes(t *testing.T) {
 
 	if g, b := bisectNodes(nil, tester(nil)); g != nil || b != nil {
 		t.Errorf("пустой набор: %v %v", g, b)
+	}
+}
+
+// unixOnly пропускает тест, которому нужны /bin/sh или семантика файлов Unix
+// (удаление открытого файла). В CI тесты идут на Linux и не пропускаются.
+func unixOnly(t *testing.T) {
+	t.Helper()
+	if !unixPerms {
+		t.Skip("только для Unix")
 	}
 }

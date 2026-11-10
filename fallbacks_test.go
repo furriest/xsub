@@ -62,7 +62,7 @@ func TestPrepareFallbacksImport(t *testing.T) {
 	if err := saveFallbacksFile(c, fbs); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := os.Stat(c.path(fallbacksFile)); st.Mode().Perm() != 0o600 {
+	if st, _ := os.Stat(c.path(fallbacksFile)); unixPerms && st.Mode().Perm() != 0o600 {
 		t.Errorf("права fallbacks.json: %v", st.Mode())
 	}
 	nodes, warns := fallbackNodes(c, nil)

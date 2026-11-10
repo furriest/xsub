@@ -258,6 +258,7 @@ func TestWithRealXray(t *testing.T) {
 }
 
 func TestLogRotation(t *testing.T) {
+	unixOnly(t)
 	dir := t.TempDir()
 	l := &Logger{path: filepath.Join(dir, "x.log"), maxSize: 1024}
 	for i := 0; i < 200; i++ {

@@ -868,9 +868,14 @@ func every(ctx context.Context, what string, d time.Duration, f func()) {
 	}
 }
 
+// startedAt — время запуска процесса. По его смене страница узнаёт, что xsub
+// перезапустился (после настроек, восстановления или обновления), и перезагружается.
+var startedAt = time.Now()
+
 type AppStatus struct {
 	Status
 	Version      string         `json:"version"`
+	Started      time.Time      `json:"started"`
 	Host         string         `json:"host"` // имя устройства — в заголовке страницы
 	Latest       string         `json:"latest"`
 	Refreshing   bool           `json:"refreshing"`    // идёт обновление подписок
@@ -894,7 +899,7 @@ type SubStatusOut struct {
 }
 
 func (a *App) status() AppStatus {
-	s := AppStatus{Status: a.w.status(), Version: version, Host: hostName, Managed: managed(a.c), Refreshing: a.refreshing.Load(), PendingApply: a.pendingApply.Load(), Server: serverMode}
+	s := AppStatus{Status: a.w.status(), Version: version, Started: startedAt, Host: hostName, Managed: managed(a.c), Refreshing: a.refreshing.Load(), PendingApply: a.pendingApply.Load(), Server: serverMode}
 	s.Groups, _ = loadGroups(a.c)
 	a.mu.Lock()
 	for _, sub := range a.subs {

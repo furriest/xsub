@@ -122,6 +122,7 @@ code{font:12px ui-monospace,Menlo,Consolas,monospace}
   </span>
   <select id="lang" onchange="setLang(this.value)"><option value="ru">Русский</option><option value="en">English</option></select>
 </header>
+<div id="connBanner" class="banner bad hide" style="border-color:var(--bad)" data-i18n="connLost"></div>
 <div id="updBanner" class="banner hide"></div>
 
 <nav class="tabs" id="tabs"></nav>
@@ -203,7 +204,7 @@ code{font:12px ui-monospace,Menlo,Consolas,monospace}
     <textarea id="list" spellcheck="false"></textarea>
     <div id="groupsEditor" class="hide"></div>
     <div class="row" style="margin-top:8px" id="listBar">
-      <button class="primary" id="lsave" data-i18n="saveApply" onclick="saveList(true)"></button>
+      <button class="primary" id="lsave" data-i18n="saveApply" data-i18n-title="saveKey" onclick="saveList(true)"></button>
       <button data-i18n="saveOnly" onclick="saveList(false)"></button>
       <button data-i18n="listContent" onclick="showListContent()"></button>
       <span id="lmsg" class="muted"></span>
@@ -358,7 +359,8 @@ ru: {
   setBackup:'Резервная копия', backupHint:'Все настройки, подписки, списки и группы одним файлом. В файле есть ссылки подписок и пароль — храните его как секрет.', backupBtn:'Скачать копию', restoreBtn:'Восстановить из файла', restoring:'Восстанавливаю…',
   diagFix:'Нужно поправить', diagTitle:'Окружение', diagHint:'После установки XKeen (ядро Xray) и xsub вручную в конфигах Xray ничего править не нужно. Здесь видно, всё ли на месте.', diagRecheck:'Проверить снова', diagCmd:'Как исправить',
   setUpdate:'Обновление', updCheck:'Проверить', updBtn:'Обновить', curVer:'Установлена версия', newVer:'Доступна версия', upToDate:'Это последняя версия.', updStarted:'Обновление запущено, страница перезагрузится сама…', updConfirm:'Обновить xsub сейчас?', updUnknown:'Нажмите «Проверить», чтобы узнать, есть ли новая версия.', updDocker:'В Docker xsub обновляется вместе с образом: docker compose pull && docker compose up -d',
-  bannerNew:'Доступна новая версия xsub', bannerGo:'Обновить в настройках'
+  bannerNew:'Доступна новая версия xsub', bannerGo:'Обновить в настройках',
+  connLost:'Нет связи с xsub. Данные на странице могут быть устаревшими — повторяю попытку…', saveKey:'Ctrl+S — сохранить и применить'
 },
 en: {
   tabOverview:'Overview', tabSubs:'Subscriptions', tabNodes:'Nodes', tabLists:'Routing', tabRoute:'Site check', tabSettings:'Settings', tabLog:'Log',
@@ -396,7 +398,8 @@ en: {
   setBackup:'Backup', backupHint:'All settings, subscriptions, lists and groups in one file. It contains subscription links and the password — keep it secret.', backupBtn:'Download backup', restoreBtn:'Restore from file', restoring:'Restoring…',
   diagFix:'Needs attention', diagTitle:'Environment', diagHint:'After installing XKeen (Xray core) and xsub, nothing has to be edited in the Xray configs by hand. This shows whether everything is in place.', diagRecheck:'Check again', diagCmd:'How to fix',
   setUpdate:'Update', updCheck:'Check', updBtn:'Update', curVer:'Installed version', newVer:'Available version', upToDate:'This is the latest version.', updStarted:'Update started, the page will reload by itself…', updConfirm:'Update xsub now?', updUnknown:'Press "Check" to see whether a new version is available.', updDocker:'In Docker, xsub updates with the image: docker compose pull && docker compose up -d',
-  bannerNew:'A new xsub version is available', bannerGo:'Update in Settings'
+  bannerNew:'A new xsub version is available', bannerGo:'Update in Settings',
+  connLost:'No connection to xsub. The data on this page may be out of date — retrying…', saveKey:'Ctrl+S to save and apply'
 }};
 let lang = 'ru';
 try { lang = localStorage.getItem('xsub-lang') || ((navigator.language || 'ru').startsWith('ru') ? 'ru' : 'en'); } catch (e) {}
@@ -427,6 +430,9 @@ function tab(k) {
   if (k !== 'lists' && dirty && !confirm(t('unsaved'))) return;
   if (k !== 'lists') dirty = false;
   curTab = k;
+  // Вкладка в адресе: перезагрузка после сохранения настроек или обновления
+  // возвращает туда же, а не на «Обзор»; ссылку на вкладку можно сохранить.
+  try { history.replaceState(null, '', k === 'overview' ? location.pathname : '#' + k); } catch (e) {}
   document.querySelectorAll('[data-tab]').forEach(e => e.classList.toggle('hide', e.dataset.tab !== k));
   applyI18n();
   if (k === 'settings') { loadSettings(); loadDiag(); }
@@ -567,7 +573,10 @@ function render() {
   const now = Date.now();
   const tgName = tg => tg.id ? tg.name : t('mainTarget');
   renderSortArrows();
-  $('nodes').innerHTML = sortNodes((s.nodes || []).concat(s.fallbacks || [])).map(n => {
+  // Пока открыт выбор цели у узла, не перерисовываем: опрос раз в 10 секунд
+  // закрывал список прямо в руках.
+  const ae = document.activeElement;
+  if (!(ae && ae.tagName === 'SELECT' && $('nodes').contains(ae))) $('nodes').innerHTML = sortNodes((s.nodes || []).concat(s.fallbacks || [])).map(n => {
     const activeIn = ts.filter(tg => tg.active === n.tag);
     const avail = ts.filter(tg => n.fallback || !tg.tags || tg.tags.includes(n.tag));
     const bad = n.bad_until && new Date(n.bad_until).getTime() > now;
@@ -597,7 +606,10 @@ function render() {
     return '<tr class="' + (activeIn.length ? 'active' : '') + '"><td>' + esc(n.name) + (n.fallback ? '<span class="badge warn">' + t('fallback') + '</span>' : '') + '<div class="muted addr">' + esc(n.proto) + ' · ' + esc(n.address) + '</div></td><td class="lat">' + lat +
       '</td><td class="rel">' + rel + '</td><td class="state">' + state + '</td><td class="btn">' + btn + '</td></tr>';
   }).join('') || '<tr><td colspan="5" class="muted">' + t('noNodes') + '</td></tr>';
-  $('log').textContent = (s.log || []).slice().reverse().join('\n');
+  // Выделенный в журнале текст (чтобы скопировать) не должен пропадать при опросе.
+  const sel = window.getSelection();
+  if (!(sel && !sel.isCollapsed && $('log').contains(sel.anchorNode))) $('log').textContent = (s.log || []).slice().reverse().join('\n');
+  if (curTab === 'settings') updView();
   if (!subsDirty && !$('subs').contains(document.activeElement)) renderSubs();
   if (!$('fbs').contains(document.activeElement)) renderFbs();
   if (!groupsDirty && !$('groupsEditor').contains(document.activeElement)) {
@@ -647,9 +659,35 @@ async function applySaved() {
 }
 
 async function load() {
-  try { S = await (await fetch('/api/status')).json(); } catch (e) { return; }
+  let st;
+  try {
+    const r = await fetch('/api/status');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    st = await r.json();
+  } catch (e) { $('connBanner').classList.remove('hide'); return; }
+  $('connBanner').classList.add('hide');
+  S = st;
   watchRefresh();
   render();
+}
+
+// waitRestart ждёт, пока xsub перезапустится (сменится время старта), и
+// перезагружает страницу. Раньше ждали вслепую 4 секунды: на медленном роутере
+// страница перезагружалась, когда xsub ещё не слушал порт, и браузер
+// показывал ошибку соединения.
+async function waitRestart(timeoutMs) {
+  const before = S && S.started, end = Date.now() + (timeoutMs || 60000);
+  const pause = ms => new Promise(r => setTimeout(r, ms));
+  await pause(1500);
+  while (Date.now() < end) {
+    try {
+      const r = await fetch('/api/status');
+      if (r.status === 401) break; // сменили пароль — xsub уже работает с новым
+      if (r.ok && (!before || (await r.json()).started !== before)) break;
+    } catch (e) {}
+    await pause(1500);
+  }
+  location.reload();
 }
 
 // ---------- подписки ----------
@@ -664,7 +702,9 @@ function subState(st) {
     if (st.info.expire) parts.push(t('until') + ' ' + new Date(st.info.expire * 1000).toLocaleDateString(loc()));
   }
   let h = '<span class="muted">' + parts.map(esc).join(' · ') + '</span>';
-  if (st.err) h += '<div class="bad">' + esc(st.err) + '</div>';
+  // Красный — только когда узлов нет вовсе. Если подписка не обновилась, но работает
+  // на сохранённой копии, это предупреждение, а не поломка.
+  if (st.err) h += '<div class="' + (st.cached && st.nodes > 0 ? 'warn' : 'bad') + '">' + esc(st.err) + '</div>';
   (st.warns || []).forEach(w => h += '<div class="muted">' + esc(w) + '</div>');
   return h;
 }
@@ -711,7 +751,7 @@ async function loadDiag() {
 }
 
 // ---------- резервные узлы ----------
-let FB = {fallbacks: [], imports: []}, fbs = [];
+let FB = {fallbacks: [], imports: []}, fbs = [], fbsDirty = false;
 async function loadFbs() {
   try { FB = await (await fetch('/api/fallbacks')).json(); } catch (e) { return; }
   fbs = (FB.fallbacks || []).map(f => ({name: f.name, link: f.link || '', iface: f.interface || '', isIface: !!f.interface,
@@ -737,14 +777,14 @@ function fbStats(f) {
 }
 function renderFbs() {
   $('fbs').innerHTML = fbs.map((f, i) => {
-    const nm = '<input class="n" placeholder="' + esc(t('phName')) + '" value="' + esc(f.name || '') + '" oninput="fbs[' + i + '].name=this.value">';
+    const nm = '<input class="n" placeholder="' + esc(t('phName')) + '" value="' + esc(f.name || '') + '" oninput="fbs[' + i + '].name=this.value;fbsDirty=true">';
     const body = f.outbound ? '<span class="grow muted">' + esc(t('fbOutbound')) + (f.summary ? ': ' + esc(f.summary) : '') + '</span>'
       : f.isIface
-      ? '<input list="ifaceList" autocomplete="off" spellcheck="false" placeholder="' + esc(t('phFbIface')) + '" value="' + esc(f.iface || '') + '" oninput="fbs[' + i + '].iface=this.value">'
-      : '<input autocomplete="off" spellcheck="false" data-1p-ignore data-lpignore="true" placeholder="' + esc(t('phFbLink')) + '" value="' + esc(f.link || '') + '" oninput="fbs[' + i + '].link=this.value">';
+      ? '<input list="ifaceList" autocomplete="off" spellcheck="false" placeholder="' + esc(t('phFbIface')) + '" value="' + esc(f.iface || '') + '" oninput="fbs[' + i + '].iface=this.value;fbsDirty=true">'
+      : '<input autocomplete="off" spellcheck="false" data-1p-ignore data-lpignore="true" placeholder="' + esc(t('phFbLink')) + '" value="' + esc(f.link || '') + '" oninput="fbs[' + i + '].link=this.value;fbsDirty=true">';
     const mv = (d, k) => '<button ' + ((i + d < 0 || i + d >= fbs.length) ? 'disabled ' : '') + 'onclick="moveFb(' + i + ',' + d + ')" title="' + esc(t(k)) + '">' + (d < 0 ? '↑' : '↓') + '</button>';
     return '<div class="card"><div class="row"><span class="muted">' + (i + 1) + '.</span>' + nm + body + mv(-1, 'up') + mv(1, 'downBtn') +
-      '<button onclick="fbs.splice(' + i + ',1);renderFbs()">' + t('del') + '</button></div>' +
+      '<button onclick="fbs.splice(' + i + ',1);fbsDirty=true;renderFbs()">' + t('del') + '</button></div>' +
       '<div style="margin-top:6px">' + fbState(f) + '</div></div>';
   }).join('') || '<div class="muted">' + t('noFbs') + '</div>';
   const imp = (FB.imports || []);
@@ -753,9 +793,9 @@ function renderFbs() {
       (c.legacy ? '<span class="badge warn">' + esc(t('fbLegacy')) + '</span>' : '') +
       (c.imported ? '<span class="badge ok">' + esc(t('fbImported')) + '</span>' : '<button onclick="importFb(\'' + esc(c.tag) + '\')">' + esc(t('fbImportBtn')) + '</button>') + '</div>').join('') : '';
 }
-function moveFb(i, d) { const x = fbs[i]; fbs[i] = fbs[i + d]; fbs[i + d] = x; renderFbs(); }
-function addFb() { fbs.push({name: '', link: ''}); renderFbs(); }
-function addFbIface() { fbs.push({name: '', link: '', iface: '', isIface: true}); renderFbs(); }
+function moveFb(i, d) { const x = fbs[i]; fbs[i] = fbs[i + d]; fbs[i + d] = x; fbsDirty = true; renderFbs(); }
+function addFb() { fbs.push({name: '', link: ''}); fbsDirty = true; renderFbs(); }
+function addFbIface() { fbs.push({name: '', link: '', iface: '', isIface: true}); fbsDirty = true; renderFbs(); }
 function importFb(tag) { saveFbs(fbs.concat([{name: tag, import: tag}]), true); }
 async function saveFbs(list, apply) {
   list = (list || fbs).filter(f => f.import || f.outbound || (f.iface || '').trim() !== '' || (f.link || '').trim() !== '')
@@ -764,7 +804,7 @@ async function saveFbs(list, apply) {
       : (f.iface || '').trim() !== '' ? {name: f.name, interface: f.iface.trim()}
       : {name: f.name, link: f.link});
   $('fbsave').disabled = true; setMsg('fbmsg', 'muted', t('applying'));
-  try { await post('/api/fallbacks', JSON.stringify({fallbacks: list, apply})); setMsg('fbmsg', 'ok', apply ? t('applied') : t('saved')); await loadFbs(); }
+  try { await post('/api/fallbacks', JSON.stringify({fallbacks: list, apply})); fbsDirty = false; setMsg('fbmsg', 'ok', apply ? t('applied') : t('saved')); await loadFbs(); }
   catch (e) { setMsg('fbmsg', 'bad', e.message); }
   $('fbsave').disabled = false; load();
 }
@@ -833,6 +873,14 @@ function showList() {
   else { $('list').value = listText[curList] || ''; setMsg('lmsg', 'muted', ''); }
 }
 $('list').addEventListener('input', () => dirty = true);
+$('list').addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'ы' || e.code === 'KeyS')) { e.preventDefault(); if (!$('lsave').disabled) saveList(true); }
+});
+// Закрыть вкладку или перезагрузить страницу с несохранёнными правками — тихо
+// потерять их. Браузер спросит подтверждение.
+window.addEventListener('beforeunload', e => {
+  if (dirty || subsDirty || groupsDirty || fbsDirty) { e.preventDefault(); e.returnValue = ''; }
+});
 async function saveList(apply) {
   $('lsave').disabled = true; setMsg('lmsg', 'muted', t('applying'));
   try {
@@ -1050,7 +1098,7 @@ function updView() {
     if (newer) $('uver').textContent += ' · ' + t('updDocker');
     return;
   }
-  $('updBtn').disabled = !newer;
+  $('updBtn').disabled = !newer || updating;
   $('updBtn').title = newer ? '' : t(latest ? 'upToDate' : 'updUnknown');
 }
 function collectSettings() {
@@ -1067,7 +1115,7 @@ function collectSettings() {
 }
 async function saveSettings() {
   $('setsave').disabled = true; setMsg('setmsg', 'muted', t('saving'));
-  try { await post('/api/settings', JSON.stringify(collectSettings())); setMsg('setmsg', 'ok', t('restarting')); setTimeout(() => location.reload(), 4000); }
+  try { await post('/api/settings', JSON.stringify(collectSettings())); setMsg('setmsg', 'ok', t('restarting')); waitRestart(); }
   catch (e) { setMsg('setmsg', 'bad', e.message); $('setsave').disabled = false; }
 }
 async function tgTest() {
@@ -1077,7 +1125,7 @@ async function tgTest() {
 async function restore(inp) {
   const f = inp.files[0]; if (!f) return;
   setMsg('bmsg', 'muted', t('restoring'));
-  try { await post('/api/restore', await f.text()); setMsg('bmsg', 'ok', t('restarting')); setTimeout(() => location.reload(), 4000); }
+  try { await post('/api/restore', await f.text()); setMsg('bmsg', 'ok', t('restarting')); waitRestart(); }
   catch (e) { setMsg('bmsg', 'bad', e.message); }
   inp.value = '';
 }
@@ -1089,21 +1137,34 @@ async function updCheck() {
     updView();
   } catch (e) { $('uver').textContent = e.message; }
 }
+// Обновление: показываем журнал, пока не запустится новый xsub (сменится время
+// старта), — тогда перезагружаемся. Если установка не удалась и xsub остался
+// прежним, останавливаемся и возвращаем кнопку, а не перезагружаемся вслепую.
+let updating = false;
 async function doUpdate() {
   if (!confirm(t('updConfirm'))) return;
-  $('updBtn').disabled = true;
+  updating = true; $('updBtn').disabled = true;
   try {
     await post('/api/update');
     $('ulog').textContent = t('updStarted');
+    const before = S && S.started, end = Date.now() + 180000;
     const iv = setInterval(async () => {
-      try { const l = await (await fetch('/api/update/log')).text(); if (l) $('ulog').textContent = l; } catch (e) {}
+      let l = '';
+      try { l = await (await fetch('/api/update/log')).text(); if (l) $('ulog').textContent = l; } catch (e) {}
+      // Журнал пишет сервер, всегда по-русски: «не вышло: …» или «готово, код N».
+      if (/не вышло|готово, код [1-9]/.test(l)) { clearInterval(iv); updating = false; updView(); return; }
+      try {
+        const r = await fetch('/api/status');
+        if (r.ok && before && (await r.json()).started !== before) { clearInterval(iv); location.reload(); return; }
+      } catch (e) {}
+      if (Date.now() > end) { clearInterval(iv); location.reload(); }
     }, 2000);
-    setTimeout(() => { clearInterval(iv); location.reload(); }, 60000);
-  } catch (e) { $('ulog').textContent = e.message; $('updBtn').disabled = false; }
+  } catch (e) { $('ulog').textContent = e.message; updating = false; updView(); }
 }
 
 (async () => {
-  applyI18n(); tab('overview');
+  const h = location.hash.slice(1);
+  applyI18n(); tab(TABS.includes(h) ? h : 'overview');
   await load();
   try { subs = await (await fetch('/api/subs')).json() || []; } catch (e) {}
   renderSubs();
