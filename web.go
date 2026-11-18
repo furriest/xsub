@@ -339,6 +339,14 @@ func (a *App) guard(next http.Handler) http.Handler {
 		}
 		host, _, _ := net.SplitHostPort(r.RemoteAddr)
 		ip := net.ParseIP(host)
+		// Проверка живости для HEALTHCHECK Docker: без пароля, но только с
+		// loopback — снаружи /healthz ведёт себя как любой другой адрес.
+		if r.Method == http.MethodGet && r.URL.Path == "/healthz" && ip != nil && ip.IsLoopback() {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			io.WriteString(w, "ok\n")
+			return
+		}
 		if !a.c.UIAllowWAN && (ip == nil || !isPrivate(ip)) {
 			http.Error(w, "доступ к xsub открыт только из домашней сети (ui_allow_wan в настройках)", http.StatusForbidden)
 			return
