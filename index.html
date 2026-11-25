@@ -116,6 +116,7 @@ code{font:12px ui-monospace,Menlo,Consolas,monospace}
 <header>
   <h1>xsub <span class="muted" id="ver" style="font-size:13px;font-weight:400"></span></h1>
   <span class="grow"></span>
+  <span id="settlingBadge" class="muted hide" data-i18n="settling"></span>
   <span id="pendingBadge" class="row hide" style="gap:6px">
     <span class="warn" data-i18n="pendingWarn"></span>
     <button id="pendingBtn" data-i18n="applyNow" onclick="applySaved()"></button>
@@ -342,7 +343,7 @@ ru: {
   del:'Удалить', nodesN:'узлов', updated:'обновлена', cached:'сохранённая копия', traffic:'трафик', gb:'ГБ', until:'до', of:'из', notYet:'ещё не обновлялась', noSubs:'Подписок пока нет — добавьте ссылку.',
   lastTest:'проверен', agoMin:'мин назад', agoH:'ч назад', justNow:'только что', thNode:'Узел', thLat:'Задержка', thRel:'Надёжность', thState:'Состояние', sortHint:'щелчок — сортировка, ещё раз — наоборот, третий — как в конфиге', badUntil:'исключён до', select:'Выбрать', pickFor:'Выбрать для…', autoBtn:'Авто',
   nodesHint:'Надёжность — доля удачных проверок загрузкой: активный узел проверяется при каждой проверке сторожа, каждый запасной — в фоне раз в N минут (задаётся в настройках). Задержка обновляется при каждой такой проверке. При сбое сначала выбираются надёжные узлы, потом быстрые.',
-  listVPN:'Через VPN', listDirect:'Напрямую', saveApply:'Сохранить и применить', saveOnly:'Сохранить', saved:'Сохранено.', pendingWarn:'Есть сохранённые, но не применённые изменения', applyNow:'Применить', applying:'Проверяю и применяю…', applied:'Применено.', unsaved:'Есть несохранённые изменения. Переключиться без сохранения?',
+  listVPN:'Через VPN', listDirect:'Напрямую', saveApply:'Сохранить и применить', saveOnly:'Сохранить', saved:'Сохранено.', pendingWarn:'Есть сохранённые, но не применённые изменения', applyNow:'Применить', applying:'Проверяю и применяю…', applied:'Применено.', settling:'Подбираю рабочие узлы…', unsaved:'Есть несохранённые изменения. Переключиться без сохранения?',
   listContent:'Состав', lcTotal:'Всего правил', lcLocal:'Локальный файл', lcRemote:'Внешний список', lcNotCached:'ещё не скачан — состав будет виден после первого применения списка', lcSkipped:'строк пропущено (нет эквивалента в Xray)', lcErrors:'ошибки разбора', lcEmpty:'пусто',
   kDomain:'домены с поддоменами', kFull:'точные домены', kKeyword:'по ключевому слову', kRegexp:'по регулярному выражению', kGeosite:'категории geosite', kExt:'категории из geo-файлов', kIp:'IP и подсети', kGeoip:'GeoIP',
   defRoute:'По умолчанию:', defDirect:'Напрямую', defVPN:'Через VPN',
@@ -381,7 +382,7 @@ en: {
   del:'Delete', nodesN:'nodes', updated:'updated', cached:'saved copy', traffic:'traffic', gb:'GB', until:'until', of:'of', notYet:'not updated yet', noSubs:'No subscriptions yet — add a link.',
   lastTest:'checked', agoMin:'min ago', agoH:'h ago', justNow:'just now', thNode:'Node', thLat:'Latency', thRel:'Reliability', thState:'State', sortHint:'click to sort, again to reverse, third time back to config order', badUntil:'excluded until', select:'Select', pickFor:'Select for…', autoBtn:'Auto',
   nodesHint:'Reliability is the share of successful download checks: the active node is checked on every watchdog run, each spare node in the background once per N minutes (see Settings). Latency is refreshed on every such check. On failure reliable nodes are tried first, then fast ones.',
-  listVPN:'Via VPN', listDirect:'Direct', saveApply:'Save and apply', saveOnly:'Save', saved:'Saved.', pendingWarn:'Saved but not applied changes', applyNow:'Apply', applying:'Checking and applying…', applied:'Applied.', unsaved:'You have unsaved changes. Switch anyway?',
+  listVPN:'Via VPN', listDirect:'Direct', saveApply:'Save and apply', saveOnly:'Save', saved:'Saved.', pendingWarn:'Saved but not applied changes', applyNow:'Apply', applying:'Checking and applying…', applied:'Applied.', settling:'Picking working nodes…', unsaved:'You have unsaved changes. Switch anyway?',
   listContent:'Contents', lcTotal:'Total rules', lcLocal:'Local file', lcRemote:'Remote list', lcNotCached:'not downloaded yet — contents will appear after the list is first applied', lcSkipped:'lines skipped (no Xray equivalent)', lcErrors:'parse errors', lcEmpty:'empty',
   kDomain:'domains with subdomains', kFull:'exact domains', kKeyword:'by keyword', kRegexp:'by regular expression', kGeosite:'geosite categories', kExt:'categories from geo files', kIp:'IPs and subnets', kGeoip:'GeoIP',
   defRoute:'Default:', defDirect:'Direct', defVPN:'Via VPN',
@@ -543,6 +544,7 @@ function strip(slots) {
   return h + '</div>';
 }
 
+let settlePoll = 0;
 function render() {
   if (!S) return;
   const s = S;
@@ -562,6 +564,11 @@ function render() {
   }).join('') : '<div class="muted big">' + t('noNodes') + '</div>';
   $('sum').textContent = t('geo') + ': ' + when(s.geo_at) + (s.xray_up ? '' : ' · ' + t('xrayDown')) + (s.managed ? '' : ' · ' + t('notManaged'));
   $('pendingBadge').classList.toggle('hide', !s.pending_apply);
+  // После применения конфига узлы подбираются в фоне: сохранение уже
+  // вернулось, а выбранный узел появится, когда флаг снимется. Пока он
+  // поднят, статус опрашиваем чаще обычных десяти секунд.
+  $('settlingBadge').classList.toggle('hide', !s.settling);
+  if (s.settling && !settlePoll) settlePoll = setTimeout(() => { settlePoll = 0; if (!document.hidden) load(); }, 3000);
   $('errs').textContent = [s.apply_err, s.geo_err].concat(s.bad_nodes || []).filter(Boolean).join('\n');
   $('warns').textContent = (s.list_warns || []).join('\n');
   const ev = (s.events || []).slice().reverse().slice(0, 30);

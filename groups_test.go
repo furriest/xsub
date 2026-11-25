@@ -288,6 +288,7 @@ func TestSaveGroupsWithLists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(a.waitSettle) // фоновый подбор узлов не должен пережить тест
 	gs := []Group{
 		{ID: "g1", Name: "Вторая", Filter: "x"},
 		{ID: "g2", Name: "Первая", Mode: GroupDirect},

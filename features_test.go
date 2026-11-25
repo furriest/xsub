@@ -29,6 +29,7 @@ func newTestApp(t *testing.T) *App {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(a.waitSettle) // фоновый подбор узлов не должен пережить тест
 	return a
 }
 

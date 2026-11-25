@@ -18,6 +18,7 @@ package main
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -68,6 +69,7 @@ type Watcher struct {
 	seeded    bool                  // список узлов уже заполнялся хотя бы раз
 	noNet     bool                  // не отвечает ни один direct_urls — проверки приостановлены
 	xrayStart string
+	settling  atomic.Bool // App подбирает узлы после apply — тик пропускается
 
 	pr     prober                 // пробы: настоящее ядро Xray или фейк в тестах
 	notify func(key, text string) // уведомления (Telegram); может быть nil

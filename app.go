@@ -58,6 +58,13 @@ type App struct {
 	// всегда fetchMu → opMu, обратный порядок запрещён.
 	fetchMu sync.Mutex
 
+	// Фоновый подбор узлов после apply (см. scheduleSettle). settleMu — только
+	// эти поля; берётся и под opMu, и без него, сам ничего не ждёт.
+	settleMu   sync.Mutex
+	settleNext *settleReq // ждёт выполнения; nil — нечего
+	settleOn   bool       // горутина подбора запущена
+	settleWG   sync.WaitGroup
+
 	kick chan struct{} // внеочередное обновление подписок
 }
 
@@ -145,12 +152,91 @@ func (a *App) sockopt() any {
 // Переменная, чтобы тесты не ждали реальные двадцать секунд.
 var xrayBootPolls = 20
 
-// afterRestart: Xray перезапущен — ждём его и закрепляем узлы заново (или выбираем новые).
-func (a *App) afterRestart(reason string) {
+// settleReq — что сделать после apply: дождаться перезапущенного ядра и
+// закрепить узлы заново (restart) и выбрать узлы целям, у которых их нет.
+type settleReq struct {
+	reason  string
+	restart bool
+	was     string // отпечаток ядра до перезапуска
+}
+
+// scheduleSettle ставит подбор узлов после apply в фон. Под opMu.
+//
+// Раньше он шёл в самом apply, то есть в HTTP-запросе сохранения: ожидание
+// ядра, повторное закрепление, а для цели, чей узел больше не подходит
+// (сменили фильтр группы), — полный выбор с замерами. При большинстве
+// недоступных узлов каждый стоит таймаута, и сохранение тянулось минутами.
+// Теперь запрос возвращается, как только конфиг проверен и ядро перезапущено;
+// ход подбора виден в статусе (settling). Повторные apply, пришедшие, пока
+// подбор не начался, сливаются в один.
+func (a *App) scheduleSettle(reason string, restart bool, was string) {
+	a.settleMu.Lock()
+	defer a.settleMu.Unlock()
+	r := a.settleNext
+	if r == nil {
+		r = &settleReq{}
+		a.settleNext = r
+	}
+	r.reason = reason
+	if restart {
+		r.restart, r.was = true, was
+	}
+	// Тик сторожа, пока идёт подбор, пропускается: он увидел бы перезапуск
+	// ядра и стал бы закреплять узлы параллельно с подбором.
+	a.w.settling.Store(true)
+	if a.settleOn {
+		return
+	}
+	a.settleOn = true
+	a.settleWG.Add(1)
+	go a.settleLoop()
+}
+
+func (a *App) settleLoop() {
+	defer a.settleWG.Done()
+	for {
+		a.settleMu.Lock()
+		r := a.settleNext
+		a.settleNext = nil
+		if r == nil {
+			a.settleOn = false
+			a.w.settling.Store(false)
+			a.settleMu.Unlock()
+			return
+		}
+		a.settleMu.Unlock()
+		safely("подборе узлов", func() { a.settle(r) })
+	}
+}
+
+// waitSettle ждёт окончания фонового подбора узлов (для тестов).
+func (a *App) waitSettle() { a.settleWG.Wait() }
+
+// settle — сам подбор. Ожидание ядра идёт без opMu: на это время другие
+// изменения настроек не стоят в очереди.
+func (a *App) settle(r *settleReq) {
+	if r.restart {
+		a.waitXray(r.was)
+	}
+	opMu.Lock()
+	defer opMu.Unlock()
+	a.settleMu.Lock()
+	again := a.settleNext != nil && a.settleNext.restart
+	a.settleMu.Unlock()
+	if again {
+		return // пока ждали, ядро перезапустили снова — закрепит следующий проход
+	}
+	if r.restart {
+		a.w.repin(r.reason)
+	}
+	a.w.selectMissing(r.reason)
+}
+
+// waitXray ждёт перезапущенное ядро: was — его отпечаток до перезапуска.
+func (a *App) waitXray(was string) {
 	// Ждём смены штампа, а не просто «ядро запущено»: xkeen -restart держит
 	// старое ядро живым заметное время, и проверки против него получают
 	// connection refused или потерянное закрепление.
-	was := xrayStartTime(a.c)
 	for i := 0; i < xrayBootPolls; i++ {
 		if st := xrayStartTime(a.c); st != "" && st != was {
 			break
@@ -164,7 +250,6 @@ func (a *App) afterRestart(reason string) {
 		a.w.probeReady(30)
 	}
 	time.Sleep(time.Duration(a.c.Watch.RestartDelaySec) * time.Second)
-	a.w.repin(reason)
 }
 
 // apply — применить узлы и списки. Под opMu.
@@ -199,6 +284,7 @@ func (a *App) apply(nodes []Node, reason string, force bool) error {
 			nodes = append(nodes, n)
 		}
 	}
+	was := xrayStartTime(a.c) // до перезапуска: по смене отпечатка settle узнает новое ядро
 	changed, err := applyConfig(a.c, env, nodes, fbs, reason)
 	a.mu.Lock()
 	if err != nil {
@@ -221,10 +307,7 @@ func (a *App) apply(nodes []Node, reason string, force bool) error {
 		a.listWarns = rs.Warnings
 		a.mu.Unlock()
 	}
-	if changed && len(nodes) > 0 {
-		a.afterRestart(reason)
-	}
-	a.w.selectMissing(reason)
+	a.scheduleSettle(reason, changed && len(nodes) > 0, was)
 	return nil
 }
 
@@ -786,12 +869,13 @@ func (a *App) updateGeoFiles(ctx context.Context, force bool) {
 		return
 	}
 	lg.Printf("geo-файлы обновлены: %d — перезапускаю Xray", len(changed))
+	was := xrayStartTime(a.c)
 	if err := restartXray(a.c); err != nil {
 		lg.Printf("ошибка перезапуска: %v", err)
 		return
 	}
 	if len(a.w.allTargets()) > 0 {
-		a.afterRestart("после обновления geo")
+		a.scheduleSettle("после обновления geo", true, was)
 	}
 }
 
@@ -852,7 +936,7 @@ func (a *App) heal() {
 		lg.Printf("перезапуск не удался: %v", err)
 		return
 	}
-	a.afterRestart("после перезапуска Xray")
+	a.scheduleSettle("после перезапуска Xray", true, "") // ядра не было: подойдёт любой отпечаток
 }
 
 func every(ctx context.Context, what string, d time.Duration, f func()) {
@@ -879,6 +963,7 @@ type AppStatus struct {
 	Host         string         `json:"host"` // имя устройства — в заголовке страницы
 	Latest       string         `json:"latest"`
 	Refreshing   bool           `json:"refreshing"`    // идёт обновление подписок
+	Settling     bool           `json:"settling"`      // после применения конфига подбираются узлы
 	PendingApply bool           `json:"pending_apply"` // есть сохранённое, но не применённое
 	Server       bool           `json:"server"`        // серверный режим (Docker): обновление — новым образом
 	Subs         []SubStatusOut `json:"subs"`
@@ -899,7 +984,7 @@ type SubStatusOut struct {
 }
 
 func (a *App) status() AppStatus {
-	s := AppStatus{Status: a.w.status(), Version: version, Started: startedAt, Host: hostName, Managed: managed(a.c), Refreshing: a.refreshing.Load(), PendingApply: a.pendingApply.Load(), Server: serverMode}
+	s := AppStatus{Status: a.w.status(), Version: version, Started: startedAt, Host: hostName, Managed: managed(a.c), Refreshing: a.refreshing.Load(), Settling: a.w.settling.Load(), PendingApply: a.pendingApply.Load(), Server: serverMode}
 	s.Groups, _ = loadGroups(a.c)
 	a.mu.Lock()
 	for _, sub := range a.subs {

@@ -29,6 +29,9 @@ func (w *Watcher) loop(ctx context.Context) {
 func (w *Watcher) tick() {
 	opMu.Lock()
 	defer opMu.Unlock()
+	if w.settling.Load() {
+		return // после применения конфига узлы закрепляет фоновый подбор
+	}
 	st := xrayStartTime(w.c)
 	if st == "" {
 		return // ядро не запущено — этим занимается самовосстановление

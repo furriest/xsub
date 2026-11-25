@@ -18,6 +18,7 @@ func TestSaveWithoutApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(a.waitSettle) // фоновый подбор узлов не должен пережить тест
 
 	if err := a.saveList(context.Background(), "vpn", "one.example\n", false); err != nil {
 		t.Fatal(err)

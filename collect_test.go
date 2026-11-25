@@ -26,7 +26,7 @@ func fakeXray(t *testing.T) string {
 }
 
 // Ускоренное ожидание загрузки ядра: тестовый «xray» никогда не бывает
-// запущен как процесс, и afterRestart отсчитывал бы полные 20 секунд.
+// запущен как процесс, и подбор узлов после apply (waitXray) отсчитывал бы полные 20 секунд.
 func fastConfig(t *testing.T) *Config {
 	t.Helper()
 	old := xrayBootPolls
@@ -59,6 +59,7 @@ func TestRefreshSubsKeepsNodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(a.waitSettle) // фоновый подбор узлов не должен пережить тест
 	if err := a.saveSubs([]Subscription{{Name: "основная", URL: panel.URL}}); err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +102,7 @@ func TestRefreshSubsHWIDPanel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(a.waitSettle) // фоновый подбор узлов не должен пережить тест
 	if err := a.saveSubs([]Subscription{{Name: "rw", URL: panel.URL}}); err != nil {
 		t.Fatal(err)
 	}

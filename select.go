@@ -3,9 +3,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -48,7 +50,7 @@ func (w *Watcher) selectNode(t *Target, reason string) {
 	w.mu.Lock()
 	t.lastSelect = time.Now()
 	w.mu.Unlock()
-	w.checkAll()
+	w.measureStale(t)
 
 	w.mu.Lock()
 	var cands []*NodeState
@@ -58,21 +60,15 @@ func (w *Watcher) selectNode(t *Target, reason string) {
 		}
 	}
 	rank(cands, time.Now())
+	cands = tryOrder(cands, w.c.Watch.MaxTry)
 	prev := t.Active
 	w.mu.Unlock()
 
+	result := w.loadTests(cands)
 	tried := 0
-	for _, n := range cands {
-		if tried >= w.c.Watch.MaxTry {
-			break
-		}
-		tried++
-		err := w.realTest(n.TestPort)
-		w.record(n.Tag, err == nil)
-		if err != nil {
-			w.mu.Lock()
-			n.LastErr = "загрузка: " + shortErr(err)
-			w.mu.Unlock()
+	for i, n := range cands {
+		tried = i + 1
+		if result(i) != nil {
 			continue
 		}
 		if err := w.override(t.Balancer, n.Tag); err != nil {
@@ -136,6 +132,73 @@ func (w *Watcher) selectNode(t *Target, reason string) {
 	w.mu.Unlock()
 	if !wasDown || isFallbackTag(prev) {
 		w.say("down"+t.ID, "down", fmt.Sprintf("%s%s: рабочих узлов не нашлось (проверено: %d) — трафик идёт через автовыбор Xray", reason, t.where(), tried))
+	}
+}
+
+// muteTries — сколько узлов без измеренной задержки пробовать загрузкой. Задержка
+// у них только что не измерилась, и почти всегда это мёртвые узлы: каждый стоит
+// полный timeout_sec. Совсем не пробовать нельзя — бывает, что через узел не
+// открывается только адрес замера, а загрузка проходит.
+const muteTries = 3
+
+// selectParallel — сколько кандидатов проверяется загрузкой одновременно.
+const selectParallel = 3
+
+// tryOrder — порядок проверки загрузкой: сначала узлы с измеренной задержкой
+// (в порядке rank), за ними не больше muteTries «немых», всего не больше maxTry. Под w.mu.
+func tryOrder(cands []*NodeState, maxTry int) []*NodeState {
+	var live, mute []*NodeState
+	for _, n := range cands {
+		if n.LatencyMs > 0 {
+			live = append(live, n)
+		} else {
+			mute = append(mute, n)
+		}
+	}
+	if len(mute) > muteTries {
+		mute = mute[:muteTries]
+	}
+	out := append(live, mute...)
+	if len(out) > maxTry {
+		out = out[:maxTry]
+	}
+	return out
+}
+
+// loadTests готовит проверку узлов загрузкой скользящим окном по selectParallel:
+// result(i) — итог i-го узла; читать по порядку. Перед ожиданием i-го запущены
+// он и следующие за ним в пределах окна — мёртвые узлы ждут свои таймауты
+// одновременно, а не друг за другом, а при первом же рабочем лишних проверок
+// не больше окна. Незапущенные не запускаются вовсе; запущенные, но не
+// дочитанные, доигрывают в фоне и пишут статистику.
+func (w *Watcher) loadTests(nodes []*NodeState) (result func(i int) error) {
+	chans := make([]chan error, len(nodes))
+	started := 0
+	start := func() {
+		n, ch := nodes[started], make(chan error, 1)
+		chans[started] = ch
+		started++
+		go func() {
+			err := errors.New("проверка прервалась")
+			safely("проверке узла", func() { err = w.realTest(n.TestPort) })
+			w.record(n.Tag, err == nil)
+			// Пометку «залип» не затираем: узел в окно мог попасть попутно,
+			// а причина, по которой он отложен, важнее свежей неудачи.
+			if err != nil {
+				w.mu.Lock()
+				if !strings.HasPrefix(n.LastErr, "залип") {
+					n.LastErr = "загрузка: " + shortErr(err)
+				}
+				w.mu.Unlock()
+			}
+			ch <- err
+		}()
+	}
+	return func(i int) error {
+		for started < len(nodes) && started < i+selectParallel {
+			start()
+		}
+		return <-chans[i]
 	}
 }
 

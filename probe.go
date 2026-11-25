@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -93,15 +94,30 @@ func hostOf(u string) string {
 // Google не исключение), меряем по test_url: узел с проходящей проверкой
 // загрузки не должен получать прочерк из-за блокировки одного измерительного
 // адреса.
+//
+// Запасной адрес берём, только если первый не открылся по вине адреса (ответ
+// с ошибкой, сброс соединения). Таймаут — признак мёртвого узла, а не
+// блокировки: второй запрос лишь удвоил бы ожидание, а при большинстве
+// недоступных узлов подписки это и растягивало выбор узла на минуты.
 func (x xrayProbe) latency(port int) (int, error) {
-	if ms, err := x.latencyOf(port, x.c.Watch.LatencyURL); err == nil {
-		return ms, nil
+	ms, err := x.latencyOf(port, x.c.Watch.LatencyURL)
+	if err == nil || isTimeout(err) {
+		return ms, err
 	}
 	return x.latencyOf(port, testURL(x.c))
 }
 
+// isTimeout — запрос не уложился в таймаут клиента (а не получил отказ).
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
+
+// Задержку меряем с таймаутом короче проверки загрузкой: узел, которому
+// на один заголовок нужно больше latency_timeout_sec, выбирать всё равно незачем,
+// а у недоступного узла каждый замер обходится в полный таймаут.
 func (x xrayProbe) latencyOf(port int, u string) (int, error) {
-	cl := socksClient(port, time.Duration(x.c.Watch.TimeoutSec)*time.Second)
+	cl := socksClient(port, time.Duration(x.c.Watch.LatencyTimeoutSec)*time.Second)
 	start := time.Now()
 	resp, err := cl.Get(u)
 	if err != nil {
@@ -184,12 +200,43 @@ func (w *Watcher) measure(n *NodeState) {
 	w.mu.Unlock()
 }
 
-// checkAll меряет задержку всех узлов параллельно (по 4 сразу).
+// probeParallel — сколько замеров задержки идёт одновременно. Недоступный узел
+// процессор не занимает, он просто ждёт таймаут, поэтому параллельность важнее
+// всего именно при многих мёртвых узлах; восьми хватает, чтобы не душить
+// слабый роутер рукопожатиями TLS.
+const probeParallel = 8
+
+// checkAll меряет задержку всех узлов и резервов (кнопка «Проверить»).
 func (w *Watcher) checkAll() {
 	w.mu.Lock()
 	nodes := append(append([]*NodeState(nil), w.nodes...), w.fbs...)
 	w.mu.Unlock()
-	sem := make(chan struct{}, 4)
+	w.measureAll(nodes)
+}
+
+// latencyFresh — замер задержки моложе этого срока при выборе узла не повторяется.
+const latencyFresh = 2 * time.Minute
+
+// measureStale меряет задержку узлов цели, у которых замер старше latencyFresh.
+// Резервы не меряются: их задержка в выборе не участвует. Несколько целей,
+// выбирающих узел подряд (repin после перезапуска), так не гоняют один и тот же
+// полный обход по разу на цель.
+func (w *Watcher) measureStale(t *Target) {
+	now := time.Now()
+	w.mu.Lock()
+	var nodes []*NodeState
+	for _, n := range w.nodes {
+		if t.has(n.Tag) && (n.CheckedAt.IsZero() || now.Sub(n.CheckedAt) >= latencyFresh) {
+			nodes = append(nodes, n)
+		}
+	}
+	w.mu.Unlock()
+	w.measureAll(nodes)
+}
+
+// measureAll меряет задержку узлов параллельно, по probeParallel сразу.
+func (w *Watcher) measureAll(nodes []*NodeState) {
+	sem := make(chan struct{}, probeParallel)
 	var wg sync.WaitGroup
 	for _, n := range nodes {
 		wg.Add(1)

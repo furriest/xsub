@@ -95,6 +95,8 @@ type WatchConfig struct {
 	RestartDelaySec int `json:"restart_delay_sec"`
 	// Запускать XKeen заново, если ядро Xray пропало (и не запущен mihomo).
 	RestartXray bool `json:"restart_xray"`
+	// Таймаут замера задержки — короче проверки загрузкой (не больше timeout_sec).
+	LatencyTimeoutSec int `json:"latency_timeout_sec"`
 }
 
 type TelegramConfig struct {
@@ -146,6 +148,7 @@ func defaultConfig() *Config {
 			TestURL:            "https://speed.cloudflare.com/__down?bytes={bytes}",
 			TestBytes:          32 << 10, // известная блокировка срабатывает на 16–20 КБ
 			TimeoutSec:         10,
+			LatencyTimeoutSec:  5,
 			FailsToSwitch:      2,
 			MaxTry:             20,
 			BadCooldownMin:     30,
@@ -291,6 +294,12 @@ func loadConfig(path string) (*Config, error) {
 	}
 	if c.Watch.TimeoutSec < 3 {
 		c.Watch.TimeoutSec = 10
+	}
+	if c.Watch.LatencyTimeoutSec < 2 {
+		c.Watch.LatencyTimeoutSec = 5
+	}
+	if c.Watch.LatencyTimeoutSec > c.Watch.TimeoutSec {
+		c.Watch.LatencyTimeoutSec = c.Watch.TimeoutSec
 	}
 	if c.Watch.FailsToSwitch < 1 {
 		c.Watch.FailsToSwitch = 1
