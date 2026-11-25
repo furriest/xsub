@@ -27,6 +27,7 @@ button.cur,button.cur:hover,button.cur:disabled{border-color:var(--ok);color:var
 input,textarea{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font:inherit;min-width:0}
 textarea{width:100%;min-height:300px;padding:10px;font:13px/1.45 ui-monospace,Menlo,Consolas,monospace}
 #groupsEditor textarea{min-height:90px;margin-top:6px}
+#subs textarea{min-height:90px;margin-top:6px}
 #groupsEditor button.on{border-color:var(--acc);color:var(--acc)}
 label{display:flex;flex-direction:column;gap:4px;flex:1 1 220px}
 label.check{flex-direction:row;align-items:center;gap:8px;flex:1 1 100%}
@@ -160,6 +161,7 @@ code{font:12px ui-monospace,Menlo,Consolas,monospace}
     <div id="subs"></div>
     <div class="row" style="margin-top:8px">
       <button data-i18n="addSub" onclick="addSub()"></button>
+      <button data-i18n="addLinks" onclick="addLinks()"></button>
       <button class="primary" id="ssave" data-i18n="saveSubs" onclick="saveSubs()"></button>
       <span id="smsg" class="muted"></span>
     </div>
@@ -332,8 +334,8 @@ ru: {
   manual:'вручную', down:'нет связи', lastOK:'последняя удачная проверка', day:'Доступность за сутки (по получасам)',
   events:'История', noEvents:'Пока ничего не происходило.', never:'никогда',
   xrayDown:'Xray не запущен!', notManaged:'конфиги Xray пока не тронуты (добавьте подписку)', geo:'Geo-файлы',
-  addSub:'+ Добавить подписку', saveSubs:'Сохранить подписки', saved:'Сохранено.', saving:'Сохраняю…',
-  subsHint:'Подходят ссылки vless/vmess/trojan/ss/hysteria2/wireguard/socks/http (списком или в base64), Clash/mihomo YAML, sing-box JSON и JSON Xray. Фильтр — регулярное выражение по имени узла, например (?i)Россия|Осталось. Информационные строки панелей пропускаются сами.',
+  addSub:'+ Добавить подписку', addLinks:'+ Узлы ссылками', linksKind:'узлы ссылками — без скачивания', phLinks:'Ссылки узлов — по одной в строке: vless://…, trojan://…, socks5://user:pass@host:port, http://host:port…', saveSubs:'Сохранить подписки', saved:'Сохранено.', saving:'Сохраняю…',
+  subsHint:'Подходят ссылки vless/vmess/trojan/ss/hysteria2/wireguard/socks/http (списком или в base64), Clash/mihomo YAML, sing-box JSON и JSON Xray. Фильтр — регулярное выражение по имени узла, например (?i)Россия|Осталось. Информационные строки панелей пропускаются сами. «Узлы ссылками» — отдельные узлы без подписки: они работают как узлы подписки (группы, балансировщик, сторож).',
   phName:'Название', phUrl:'https://… ссылка на подписку', phEx:'Исключить узлы (регулярное выражение)', phIn:'Только узлы (необязательно)', phUA:'User-Agent (необяз.)',
   forceHwid:'Всегда отправлять HWID', hwidHelpLabel:'Подробнее об отправке HWID', hwidHelp:'Если включено, HWID отправляется сразу. Если выключено, он всё равно может быть отправлен автоматически при повторном запросе, когда сервер ответил, но не вернул подходящие узлы. Провайдер может учитывать устройство в своём лимите.',
   fbTitle:'Резервные узлы', fbHint:'Включаются, только когда не работает ни один узел подписок; раз в 10 минут xsub пробует вернуться на подписку. Порядок — приоритет. Подходят те же ссылки, что и в подписках (vless://, socks://, http:// и др.), а также интерфейс самого роутера: трафик уйдёт через туннель Keenetic OS, минуя Xray.',
@@ -371,8 +373,8 @@ en: {
   manual:'manual', down:'no connection', lastOK:'last successful check', day:'Availability over 24 h (half-hour slots)',
   events:'History', noEvents:'Nothing has happened yet.', never:'never',
   xrayDown:'Xray is not running!', notManaged:'Xray configs untouched yet (add a subscription)', geo:'Geo files',
-  addSub:'+ Add subscription', saveSubs:'Save subscriptions', saved:'Saved.', saving:'Saving…',
-  subsHint:'Supported: vless/vmess/trojan/ss/hysteria2/wireguard/socks/http links (plain or base64), Clash/mihomo YAML, sing-box JSON and Xray JSON. The filter is a regular expression on node names, e.g. (?i)Russia|Remaining. Info entries from panels are skipped automatically.',
+  addSub:'+ Add subscription', addLinks:'+ Nodes as links', linksKind:'nodes as links — nothing to download', phLinks:'Node links, one per line: vless://…, trojan://…, socks5://user:pass@host:port, http://host:port…', saveSubs:'Save subscriptions', saved:'Saved.', saving:'Saving…',
+  subsHint:'Supported: vless/vmess/trojan/ss/hysteria2/wireguard/socks/http links (plain or base64), Clash/mihomo YAML, sing-box JSON and Xray JSON. The filter is a regular expression on node names, e.g. (?i)Russia|Remaining. Info entries from panels are skipped automatically. "Nodes as links" are standalone nodes without a subscription: they work like subscription nodes (groups, balancer, watchdog).',
   phName:'Name', phUrl:'https://… subscription link', phEx:'Exclude nodes (regular expression)', phIn:'Only nodes (optional)', phUA:'User-Agent (optional)',
   forceHwid:'Always send HWID', hwidHelpLabel:'About sending HWID', hwidHelp:'When enabled, HWID is sent immediately. When disabled, it may still be sent automatically on a retry if the server responds without suitable nodes. The provider may count this device against its limit.',
   fbTitle:'Fallback nodes', fbHint:'Used only when no subscription node works; every 10 minutes xsub tries to switch back to the subscription. Order is priority. Same links as in subscriptions (vless://, socks://, http:// etc.), or a router interface: traffic then leaves through a Keenetic OS tunnel, bypassing Xray.',
@@ -702,7 +704,8 @@ let subs = [], subsDirty = false;
 const gb = n => (n / 1073741824).toFixed(n < 10737418240 ? 2 : 1);
 function subState(st) {
   if (!st) return '<span class="muted">' + t('notYet') + '</span>';
-  let parts = [t('nodesN') + ': ' + st.nodes, t('updated') + ': ' + when(st.at) + (st.cached ? ' (' + t('cached') + ')' : '')];
+  // У вставленных ссылками узлов нечего обновлять — только их число.
+  let parts = st.manual ? [t('nodesN') + ': ' + st.nodes] : [t('nodesN') + ': ' + st.nodes, t('updated') + ': ' + when(st.at) + (st.cached ? ' (' + t('cached') + ')' : '')];
   if (st.info) {
     const used = st.info.upload + st.info.download;
     parts.push(t('traffic') + ': ' + gb(used) + (st.info.total ? ' ' + t('of') + ' ' + gb(st.info.total) : '') + ' ' + t('gb'));
@@ -715,11 +718,19 @@ function subState(st) {
   (st.warns || []).forEach(w => h += '<div class="muted">' + esc(w) + '</div>');
   return h;
 }
+// Подписка из вставленных ссылок: адреса нет, узлы — в поле links.
+const subManual = s => s._manual || !!(s.links || '').trim();
 function renderSubs() {
   const states = (S && S.subs) || [];
   $('subs').innerHTML = subs.map((s, i) => {
-    const st = (states.find(x => x.url === s.url) || {}).state;
+    const man = subManual(s);
+    const st = (states.find(x => man ? x.links === s.links : !x.links && x.url === s.url) || {}).state;
     const inp = (k, ph, cls) => '<input class="' + (cls || '') + '" placeholder="' + esc(t(ph)) + '" value="' + esc(s[k] || '') + '" oninput="subs[' + i + '].' + k + '=this.value;subsDirty=true">';
+    if (man) return '<div class="card"><div class="row">' + inp('name', 'phName', 'n') + '<span class="muted grow">' + esc(t('linksKind')) + '</span>' +
+      '<button onclick="subs.splice(' + i + ',1);subsDirty=true;renderSubs()">' + t('del') + '</button></div>' +
+      '<textarea placeholder="' + esc(t('phLinks')) + '" autocomplete="off" autocapitalize="off" spellcheck="false" oninput="subs[' + i + '].links=this.value;subsDirty=true">' + esc(s.links || '') + '</textarea>' +
+      '<div class="row" style="margin-top:6px">' + inp('exclude', 'phEx') + inp('include', 'phIn') + '</div>' +
+      '<div style="margin-top:6px">' + subState(st) + '</div></div>';
     return '<div class="card"><div class="row">' + inp('name', 'phName', 'n') + inp('url', 'phUrl') +
       '<button onclick="subs.splice(' + i + ',1);subsDirty=true;renderSubs()">' + t('del') + '</button></div>' +
       '<div class="row" style="margin-top:6px">' + inp('exclude', 'phEx') + inp('include', 'phIn') + inp('user_agent', 'phUA', 'n') + '</div>' +
@@ -729,10 +740,13 @@ function renderSubs() {
   }).join('') || '<div class="muted">' + t('noSubs') + '</div>';
 }
 function addSub() { subs.push({name: '', url: ''}); subsDirty = true; renderSubs(); }
+function addLinks() { subs.push({name: '', url: '', links: '', _manual: true}); subsDirty = true; renderSubs(); }
 async function saveSubs() {
   $('ssave').disabled = true; setMsg('smsg', 'muted', t('saving'));
   try {
-    await post('/api/subs', JSON.stringify(subs.filter(s => s.url.trim() !== '')));
+    const out = subs.filter(s => subManual(s) ? (s.links || '').trim() !== '' : (s.url || '').trim() !== '')
+      .map(s => { const o = Object.assign({}, s); delete o._manual; if (subManual(s)) { o.url = ''; delete o.user_agent; delete o.force_hwid; } return o; });
+    await post('/api/subs', JSON.stringify(out));
     subsDirty = false; setMsg('smsg', 'ok', t('saved'));
     subs = await (await fetch('/api/subs')).json() || []; renderSubs();
   } catch (e) { setMsg('smsg', 'bad', e.message); }

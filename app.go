@@ -25,6 +25,7 @@ type SubState struct {
 	Warns  []string  `json:"warns"`
 	Info   *UserInfo `json:"info"`
 	Cached bool      `json:"cached"` // узлы взяты из сохранённой копии
+	Manual bool      `json:"manual"` // узлы вставлены ссылками — скачивать нечего
 }
 
 type App struct {
@@ -349,15 +350,27 @@ func (a *App) collect(ctx context.Context, fetch bool) []Node {
 	newStates := map[string]*SubState{}
 	for _, s := range subs {
 		a.mu.Lock()
-		prev := a.states[s.URL]
+		prev := a.states[s.key()]
 		a.mu.Unlock()
 		st := &SubState{Name: s.Name}
 		if prev != nil {
 			st.At, st.Info = prev.At, prev.Info
 		}
-		infoPath := strings.TrimSuffix(a.cachePath(s.URL), ".txt") + ".info"
 		var nodes []Node
 		var warns []string
+		if s.manual() {
+			// Вставленные ссылки: ни сети, ни сохранённой копии — разбираем как есть.
+			nodes, warns = a.parseSub(s, []byte(s.Links), sock, multi)
+			if len(nodes) == 0 {
+				st.Err = "в ссылках нет подходящих узлов (проверьте ссылки и фильтры)"
+			}
+			st.Manual = true
+			all, st.Nodes = addNodes(all, seen, nodes)
+			st.Warns = warns
+			newStates[s.key()] = st
+			continue
+		}
+		infoPath := strings.TrimSuffix(a.cachePath(s.URL), ".txt") + ".info"
 		fresh := false
 		if fetch {
 			ua := firstNonEmpty(s.UserAgent, a.c.UserAgent)
@@ -414,20 +427,27 @@ func (a *App) collect(ctx context.Context, fetch bool) []Node {
 			}
 		}
 		st.Warns = append(st.Warns, warns...)
-		for _, n := range nodes {
-			if seen[n.Tag] {
-				continue
-			}
-			seen[n.Tag] = true
-			all = append(all, n)
-			st.Nodes++
-		}
+		all, st.Nodes = addNodes(all, seen, nodes)
 		newStates[s.URL] = st
 	}
 	a.mu.Lock()
 	a.states = newStates
 	a.mu.Unlock()
 	return all
+}
+
+// addNodes добавляет к all узлы, которых ещё не было (по тегу); возвращает, сколько добавлено.
+func addNodes(all []Node, seen map[string]bool, nodes []Node) ([]Node, int) {
+	added := 0
+	for _, n := range nodes {
+		if seen[n.Tag] {
+			continue
+		}
+		seen[n.Tag] = true
+		all = append(all, n)
+		added++
+	}
+	return all, added
 }
 
 // refreshSubs скачивает все подписки и применяет. Возвращает true, если какая-то не скачалась.
@@ -492,8 +512,8 @@ func (a *App) checkSubLimits() {
 	}
 	var items []item
 	for _, s := range a.subs {
-		if st := a.states[s.URL]; st != nil && st.Info != nil {
-			items = append(items, item{s.URL, s.Name, *st.Info})
+		if st := a.states[s.key()]; st != nil && st.Info != nil {
+			items = append(items, item{s.key(), s.Name, *st.Info})
 		}
 	}
 	a.mu.Unlock()
@@ -523,6 +543,7 @@ func (a *App) saveSubs(subs []Subscription) error {
 	for i := range subs {
 		subs[i].Name = strings.TrimSpace(subs[i].Name)
 		subs[i].URL = strings.TrimSpace(subs[i].URL)
+		subs[i].Links = strings.TrimSpace(subs[i].Links)
 		subs[i].IntervalHours = 0
 		if subs[i].Name == "" {
 			subs[i].Name = fmt.Sprintf("Подписка %d", i+1)
@@ -988,7 +1009,7 @@ func (a *App) status() AppStatus {
 	s.Groups, _ = loadGroups(a.c)
 	a.mu.Lock()
 	for _, sub := range a.subs {
-		s.Subs = append(s.Subs, SubStatusOut{Subscription: sub, State: a.states[sub.URL]})
+		s.Subs = append(s.Subs, SubStatusOut{Subscription: sub, State: a.states[sub.key()]})
 	}
 	s.GeoAt, s.GeoErr, s.ApplyErr = a.geoAt, a.geoErr, a.applyErr
 	s.BadNodes, s.ListWarns, s.Latest = a.badNodes, a.listWarns, a.latest

@@ -38,8 +38,11 @@ type Config struct {
 }
 
 type Subscription struct {
-	Name      string `json:"name"`
-	URL       string `json:"url"`
+	Name string `json:"name"`
+	URL  string `json:"url"`
+	// Links — узлы, вставленные ссылками прямо на странице (vless://, socks5://…,
+	// формат как у тела подписки). Такая «подписка» ничего не скачивает; URL у неё пуст.
+	Links     string `json:"links,omitempty"`
 	UserAgent string `json:"user_agent,omitempty"`
 	ForceHWID bool   `json:"force_hwid,omitempty"`
 	Exclude   string `json:"exclude,omitempty"` // регулярное выражение по имени узла
@@ -359,6 +362,18 @@ func loadSubs(c *Config) ([]Subscription, error) {
 	return subs, validateSubs(subs)
 }
 
+// manual — узлы вставлены ссылками, скачивать нечего.
+func (s Subscription) manual() bool { return strings.TrimSpace(s.Links) != "" }
+
+// key — по чему различаются подписки: состояние, сохранённая копия, уведомления.
+// У вставленных ссылками адреса нет — ключом служит отпечаток самих ссылок.
+func (s Subscription) key() string {
+	if s.manual() {
+		return "links:" + subKey(s.Links)
+	}
+	return s.URL
+}
+
 func validateSubs(subs []Subscription) error {
 	seen := map[string]bool{}
 	for i, s := range subs {
@@ -366,13 +381,28 @@ func validateSubs(subs []Subscription) error {
 		if n == "" {
 			n = fmt.Sprintf("№%d", i+1)
 		}
-		if !strings.HasPrefix(s.URL, "http://") && !strings.HasPrefix(s.URL, "https://") {
+		switch {
+		case s.manual():
+			if s.URL != "" {
+				return fmt.Errorf("подписка %s: укажите либо ссылку на подписку, либо ссылки узлов", n)
+			}
+			if nodes, warns := parseSubscription(s.Links, parseOpts{sub: s.Name}); len(nodes) == 0 {
+				msg := fmt.Sprintf("подписка %s: в ссылках нет ни одного узла, который понимает xsub", n)
+				if len(warns) > 0 {
+					msg += ":\n" + strings.Join(warns, "\n")
+				}
+				return fmt.Errorf("%s", msg)
+			}
+		case !strings.HasPrefix(s.URL, "http://") && !strings.HasPrefix(s.URL, "https://"):
 			return fmt.Errorf("подписка %s: ссылка должна начинаться с http:// или https://", n)
 		}
-		if seen[s.URL] {
+		if seen[s.key()] {
+			if s.manual() {
+				return fmt.Errorf("подписка %s: такие ссылки узлов уже есть", n)
+			}
 			return fmt.Errorf("подписка %s: такая ссылка уже есть", n)
 		}
-		seen[s.URL] = true
+		seen[s.key()] = true
 		for _, re := range []string{s.Exclude, s.Include} {
 			if re == "" {
 				continue
